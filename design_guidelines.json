@@ -1,0 +1,159 @@
+{
+  "app_name": "BudKoszt Pro",
+  "personality": "5 Brutalist Mobile",
+  "personality_one_liner": "A high-contrast, glove-friendly industrial tool built for speed, utility, and precision on the construction site.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#09090B",
+    "surfaceSecondary": "#F4F4F5",
+    "onSurfaceSecondary": "#09090B",
+    "surfaceTertiary": "#E4E4E7",
+    "onSurfaceTertiary": "#09090B",
+    "surfaceInverse": "#09090B",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#F97316",
+    "onBrand": "#FFFFFF",
+    "brandPrimary": "#EA580C",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#18181B",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#FFEDD5",
+    "onBrandTertiary": "#EA580C",
+    "success": "#16A34A",
+    "onSuccess": "#FFFFFF",
+    "warning": "#EAB308",
+    "onWarning": "#09090B",
+    "error": "#DC2626",
+    "onError": "#FFFFFF",
+    "info": "#2563EB",
+    "onInfo": "#FFFFFF",
+    "border": "#D4D4D8",
+    "borderStrong": "#09090B",
+    "divider": "#E4E4E7",
+    "muted": "#71717A"
+  },
+  "typography": {
+    "displayFontFamily": "Space Grotesk",
+    "textFontFamily": "IBM Plex Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous touch targets (min 56pt height) and strict padding. Avoid unnecessary whitespace, use strong borders to group content.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 0,
+    "md": 0,
+    "lg": 0,
+    "pill": 0
+  },
+  "shadow_tier": 0,
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": [
+      "Avoid glassmorphism entirely; it clashes with the Brutalist/Utility aesthetic and reduces visibility in bright sunlight."
+    ],
+    "dont's": [
+      "No blur effects, no translucent backgrounds. Rely on solid surfaces and strong borders."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "solid surfaceSecondary",
+      "android": "solid surfaceSecondary",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "none",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Dashboard / Home",
+      "purpose": "Provide quick access to recent estimates and a massive primary action to start a new one.",
+      "states": {
+        "loading": "High-contrast skeleton blocks.",
+        "empty": "Empty clipboard illustration + 'Brak aktywnych kosztorysów' + 'Nowa wycena' CTA.",
+        "error": "Bold error text + 'Spróbuj ponownie' button."
+      },
+      "layout": "Brutalist edge-to-edge layout. Top section contains user greeting. Below it, a massive, full-width 'Nowa Wycena' button in Signal Orange. Underneath, a list of 'Ostatnie wyceny' (Recent estimates) using hard 1pt borders to separate rows. High contrast, oversized typography for PLN amounts."
+    },
+    {
+      "name": "Capture (Nowa Wycena)",
+      "purpose": "Capture field data (voice, photo, or text) for AI processing (Gemini 3.1 Pro + Whisper).",
+      "states": {
+        "loading": "Spinner with bold text 'AI analizuje miejsce i zakres prac...'",
+        "empty": "N/A",
+        "error": "Error message with 'Ponów' CTA."
+      },
+      "layout": "Camera viewfinder takes up the top 60% of the screen. Bottom 40% houses oversized, touch-friendly buttons for Voice Record, Snap Photo, and Text Note. Once input is gathered, a sticky bottom CTA 'Generuj kosztorys' appears."
+    },
+    {
+      "name": "Estimate Editor",
+      "purpose": "Review and manually edit the AI-generated list of materials, labor, margins, and VAT.",
+      "states": {
+        "loading": "Skeleton rows of materials.",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "List of editable rows separated by strong borders. Each row has oversized '+' and '-' buttons for quantities. Sticky bottom footer (outside scroll view) displays total Net/Gross PLN and a massive 'Generuj PDF' CTA. Use mono-spaced font for all numbers/amounts."
+    },
+    {
+      "name": "Clients & Projects",
+      "purpose": "Manage CRM entities (clients, investments, addresses).",
+      "states": {
+        "loading": "Skeleton list.",
+        "empty": "Illustration + 'Brak klientów. Dodaj pierwszego!'",
+        "error": "Error message + 'Ponów' CTA."
+      },
+      "layout": "Simple, high-contrast directory list. Full-width rows with strong borders. Massive 'Dodaj' (Add) button fixed at the bottom."
+    }
+  ],
+  "images": {
+    "tools_logo": {
+      "url": "https://images.unsplash.com/photo-1671803845754-d159c3f3e3d4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzV8MHwxfHNlYXJjaHwxfHxjb25zdHJ1Y3Rpb24lMjB0b29scyUyMHRyYW5zcGFyZW50JTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3ODk0MDA5NTl8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "construction tools transparent background"
+    },
+    "hero_blueprint": {
+      "url": "https://images.unsplash.com/photo-1542621334-a254cf47733d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBjb25zdHJ1Y3Rpb24lMjBzaXRlJTIwYmx1ZXByaW50JTIwcGhvdG98ZW58MHx8fHwxNzg5NDAwOTU5fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "modern construction site blueprint photo"
+    },
+    "empty_clipboard": {
+      "url": "https://images.unsplash.com/photo-1780664555037-9f44a8142c61?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzR8MHwxfHNlYXJjaHwxfHxjbGlwYm9hcmQlMjBpc29sYXRlZCUyMG9uJTIwd2hpdGUlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4NTM4NTMwNXww&ixlib=rb-4.1.0&q=85",
+      "alt": "clipboard and pencil isolated on white"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the Brutalist Mobile Light aesthetic: no rounded corners (radius 0 everywhere), no drop shadows, and no glassmorphism.",
+    "The app targets construction workers outdoors: prioritize absolute maximum contrast (black text on stark white backgrounds) and massive touch targets (min 56pt) that can be easily tapped while wearing gloves.",
+    "Use Space Grotesk for all headings and primary CTAs to create a mechanical, structured look.",
+    "MANDATORY: Use IBM Plex Sans for body text, but YOU MUST USE a monospaced variant or `fontVariant: ['tabular-nums']` for ALL costs, prices, quantities, and numeric data in the Estimate Editor.",
+    "Language is strictly Polish. Currency is PLN, VAT 23%.",
+    "Auth screen should feature the email/password fields and a Google sign-in option with brutalist hard borders.",
+    "For the Estimate Editor, ensure the 'Generuj PDF' CTA and total summary remain sticky at the bottom of the screen (in a safe-area respecting container) while the materials/labor list scrolls behind it.",
+    "Implement real haptics using `expo-haptics` on major interactions (like capturing media, adding/removing item quantities, and generating PDFs)."
+  ],
+  "haptics": {
+    "primary_button_press": "impactMedium",
+    "capture_action": "impactHeavy",
+    "quantity_adjust": "impactLight",
+    "success_state": "notificationSuccess",
+    "error_state": "notificationError"
+  }
+}

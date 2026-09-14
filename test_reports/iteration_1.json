@@ -1,0 +1,37 @@
+{
+  "summary": "BudKoszt Pro backend + frontend tested end-to-end. Backend: 27/27 pytest assertions pass (auth JWT, /auth/me, profile update, catalog auto-seed (30 materials + 14 labor rates verified), clients & projects CRUD w/ soft delete, materials/labor CRUD, POST /api/ai/analyze via Gemini producing a Polish estimate with 15 items and totals, GET/PUT /api/estimates/{id} recomputing totals and status changes, GET /api/estimates/{id}/pdf?token=... returning valid application/pdf %PDF header). Frontend: email/password login → Pulpit renders with recent estimates, all 4 bottom tabs navigate (Pulpit/Inwestycje/Klienci/Baza), Baza has category chips + Materiały/Robocizna sub-tabs, client-form creates a client (toast Dodano klienta). Estimate editor renders 15 items with markup/rabat/VAT + status chips, price edits + qty MINUS work and totals recompute live, Zapisz persists. Settings screen loads profile, Zapisz works, Wyloguj returns to /login. TWO REGRESSIONS FOUND: (1) qty PLUS button (item-plus-*) does not increment quantity — layout appears cropped/overlapped by the unit input on 390px viewport (minus works via same handler bumpQty, so it is UI/layout, not logic); (2) client-form (also likely project-form) calls router.back() after save which fails when opened as a deep-link route (console error 'The action GO_BACK was not handled by any navigator').",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "estimate/[id].tsx qty controls", "issue": "The '+' button (testID=item-plus-N) does not increment quantity on the mobile 390px viewport. Minus works (35→34) but two consecutive plus clicks left qty=35. The plus glyph is not visible in the qty row screenshot; unit input appears to occupy its slot. Same bumpQty handler works for minus, so this is a rendering/hit-test issue. Reference: /app/frontend/app/estimate/[id].tsx:172 (Pressable with testID item-plus-{idx}); styles at :295-299 (itemControls flexRow, qtyBox flex:1 + unitPick width:90 — with qty +/− buttons 44px each and small screen padding, the plus button may be clipped or covered by unitPick).", "testID": "item-plus-0", "priority": "HIGH"},
+      {"component": "client-form.tsx (and probably project-form.tsx)", "issue": "After successful create, the toast 'Dodano klienta' shows but navigation raises: `The action 'GO_BACK' was not handled by any navigator`. Deep-linking to /client-form leaves the user stuck on the form. Use router.replace('/(tabs)/clients') (and /projects for project-form) instead of router.back() so it works whether entered via tab flow or direct URL.", "testID": "", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "estimate/[id].tsx", "issues": ["Qty row on 390px viewport: [−] [qty] [+] [unit] does not fit — the '+' button is not visible in captured screenshots. Consider making the unit picker narrower (currently width:90) or stacking unit on a new row."]}
+    ],
+    "react_native_issues": [
+      {"component": "Animated (RN Web)", "issue": "Console warning: `useNativeDriver` is not supported because the native animated module is missing. Non-blocking for Expo web preview, but on device change to useNativeDriver:false where noticeable, or leave as-is."},
+      {"component": "props.pointerEvents", "issue": "Console warning: `props.pointerEvents is deprecated. Use style.pointerEvents`. Search for `pointerEvents=` prop usage and migrate to style.pointerEvents (RN 0.74+)."}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Fix qty '+' button in estimate editor: verify layout on 390px, ensure item-plus-{idx} Pressable is visible & clickable (not covered by unit input). Likely reduce unitPick width or wrap unit onto a new row.",
+    "Replace router.back() with router.replace('/(tabs)/clients') in client-form after successful create; do the same for project-form → /(tabs)/projects.",
+    "Migrate any `pointerEvents` prop usage to `style={{ pointerEvents: ... }}`.",
+    "(Optional) Address `useNativeDriver` warning by passing useNativeDriver:false on web, or gating with Platform.OS !== 'web'."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py compute_totals & estimate_out are clean; _id is stripped consistently.",
+    "server.py has @app.on_event startup/shutdown (deprecated in FastAPI); prefer lifespan handlers.",
+    "PDF and file endpoints correctly accept both Bearer header and ?token= query (needed because <img>/<a> cannot set headers)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (27/27)", "frontend": "~85% (login/nav/tabs/CRUD/settings/save/logout OK; qty '+' fails; client-form back-nav fails on deep-link)"},
+  "seed_data_creation": "Registration auto-seed already covered by app. Tests create/cleanup TEST_ clients, projects, materials, labor. A few TEST_ artifacts may remain from earlier runs; harmless.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login via test@budkoszt.pl / test123 works. Pytest suite is at /app/backend/tests/backend_test.py and runs green under xdist loadscope. For the estimate editor, the plus qty button rendering appears broken on 390px — verify item-plus-0 element bounding box after fix. For client-form deep-link, verify save from Klienci → DODAJ then reload /client-form and save.",
+  "rca_of_issue": "qty '+' regression: In /app/frontend/app/estimate/[id].tsx:167-178 the row is a single flex row containing qtyBox (flex:1, borders, hosts minus + qtyInput + plus) and unitPick (width:90). With inner qty buttons at 44px each plus a flex TextInput, on a 390px viewport minus screen padding this comes close to the available width. Because qtyBox uses flex:1 and overflow is default 'hidden' on RN Web, the trailing '+' Pressable is clipped and not receiving pointer events, while minus at the left remains hittable. Bumping qtyBtn width to 40px or setting unitPick to a smaller fixed width (e.g. 72) or moving unit to a new line should resolve it. Client-form back-nav: /app/frontend/app/client-form.tsx uses router.back() but when the screen is opened via deep link there is no back-stack; use router.replace to a known route."
+}
