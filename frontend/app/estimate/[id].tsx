@@ -30,6 +30,8 @@ type Item = {
   confidence?: number | null;
   catalog_id?: string | null;
   catalog_name?: string | null;
+  requires_confirmation?: boolean;
+  candidate_matches?: any[] | null;
 };
 
 const parseNum = (s: string) => parseFloat(String(s).replace(",", ".")) || 0;
@@ -93,7 +95,7 @@ export default function EstimateEditor() {
 
   const updateItem = (idx: number, patch: Partial<Item>) => setItems((arr) => arr.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
   const editQty = (idx: number, t: string) => updateItem(idx, { quantity: t, quantity_source: "user" });
-  const editPrice = (idx: number, t: string) => updateItem(idx, { unit_price: t, price_source: "user" });
+  const editPrice = (idx: number, t: string) => updateItem(idx, { unit_price: t, price_source: "user", requires_confirmation: false });
   const removeItem = (idx: number) => { haptic("light"); setItems((arr) => arr.filter((_, i) => i !== idx)); };
   const bumpQty = (idx: number, delta: number) => {
     haptic("light");
@@ -108,9 +110,14 @@ export default function EstimateEditor() {
     haptic("success");
     const price = kind === "labor" ? entry.rate : entry.unit_price;
     const cid = kind === "labor" ? entry.labor_id : entry.material_id;
-    setItems((arr) => arr.map((it, i) => (i === idx ? { ...it, unit_price: String(price), unit: entry.unit || it.unit, price_source: "catalog", catalog_id: cid, catalog_name: entry.name, name: it.name || entry.name } : it)));
+    setItems((arr) => arr.map((it, i) => (i === idx ? { ...it, unit_price: String(price), unit: entry.unit || it.unit, price_source: "catalog", catalog_id: cid, catalog_name: entry.name, name: it.name || entry.name, requires_confirmation: false } : it)));
     setPickerIdx(null);
     setSearch("");
+  };
+
+  const applyCandidate = (idx: number, cand: any) => {
+    haptic("success");
+    setItems((arr) => arr.map((it, i) => (i === idx ? { ...it, unit_price: String(cand.unit_price), unit: cand.unit || it.unit, price_source: "catalog", catalog_id: cand.catalog_id, catalog_name: cand.catalog_name, requires_confirmation: false } : it)));
   };
 
   const retry = async () => {
@@ -144,6 +151,8 @@ export default function EstimateEditor() {
       confidence: it.confidence ?? null,
       catalog_id: it.catalog_id ?? null,
       catalog_name: it.catalog_name ?? null,
+      requires_confirmation: it.requires_confirmation ?? false,
+      candidate_matches: it.candidate_matches ?? null,
     })),
   });
 
@@ -266,8 +275,8 @@ export default function EstimateEditor() {
                 <View style={[styles.srcBadge, { backgroundColor: it.quantity_source === "ai" ? colors.brandTertiary : colors.surfaceTertiary }]}>
                   <Text style={styles.srcBadgeText}>{it.quantity_source === "ai" ? "Ilość: AI (szac.)" : "Ilość: ręczna"}</Text>
                 </View>
-                <View style={[styles.srcBadge, { backgroundColor: it.price_source === "catalog" ? "#DCFCE7" : it.price_source === "user" ? colors.surfaceTertiary : "#FEE2E2" }]}>
-                  <Text style={styles.srcBadgeText}>{it.price_source === "catalog" ? "Cena: katalog" : it.price_source === "user" ? "Cena: ręczna" : "Brak w katalogu"}</Text>
+                <View style={[styles.srcBadge, { backgroundColor: it.price_source === "catalog" ? "#DCFCE7" : it.requires_confirmation ? "#FEF3C7" : it.price_source === "user" ? colors.surfaceTertiary : "#FEE2E2" }]}>
+                  <Text style={styles.srcBadgeText}>{it.price_source === "catalog" ? "Cena: katalog" : it.requires_confirmation ? "Wymaga potwierdzenia" : it.price_source === "user" ? "Cena: ręczna" : "Brak w katalogu"}</Text>
                 </View>
                 {typeof it.confidence === "number" ? (
                   <View style={[styles.srcBadge, { backgroundColor: colors.surfaceTertiary }]}>
@@ -277,6 +286,21 @@ export default function EstimateEditor() {
               </View>
 
               {it.catalog_name ? <Text style={styles.catNote}>≈ {it.catalog_name}</Text> : null}
+
+              {it.requires_confirmation && (it.candidate_matches?.length ?? 0) > 0 ? (
+                <View style={styles.confirmBox} testID={`item-confirm-${idx}`}>
+                  <Text style={styles.confirmTitle}>Nie znaleziono pewnego dopasowania — wybierz pozycję:</Text>
+                  {it.candidate_matches!.map((c: any) => (
+                    <Pressable key={c.catalog_id} onPress={() => applyCandidate(idx, c)} style={styles.candRow} testID={`item-candidate-${idx}-${c.catalog_id}`}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.candName} numberOfLines={1}>{c.catalog_name}</Text>
+                        <Text style={styles.candMeta}>{c.unit} · dopasowanie {Math.round((c.score || 0) * 100)}%</Text>
+                      </View>
+                      <Money style={styles.candPrice}>{pln(c.unit_price)}</Money>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
 
               <View style={styles.qtyBox}>
                 <Pressable onPress={() => bumpQty(idx, -1)} style={styles.qtyBtn} testID={`item-minus-${idx}`}><Minus size={18} color={colors.onSurface} weight="bold" /></Pressable>
@@ -519,6 +543,12 @@ const useStyles = makeStyles((colors) => ({
   srcBadge: { paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: colors.border },
   srcBadgeText: { fontFamily: fonts.bodySemi, fontSize: 10.5, color: colors.onSurface, letterSpacing: 0.3 },
   catNote: { fontFamily: fonts.body, fontSize: 12, color: colors.muted, fontStyle: "italic" },
+  confirmBox: { borderWidth: 2, borderColor: colors.warning, backgroundColor: "#FEF3C7", padding: 10, gap: 8 },
+  confirmTitle: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.onSurface },
+  candRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: 10, paddingVertical: 8 },
+  candName: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.onSurface },
+  candMeta: { fontFamily: fonts.body, fontSize: 11, color: colors.muted },
+  candPrice: { fontFamily: fonts.displayBold, fontSize: 14, color: colors.onSurface },
   catalogBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 44, borderWidth: 2, borderColor: colors.borderStrong, borderStyle: "dashed", backgroundColor: colors.surfaceSecondary },
   catalogBtnText: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.onSurface },
 

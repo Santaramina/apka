@@ -1,0 +1,33 @@
+{
+  "summary": "Matching safety refactor verified end-to-end. Backend pytest: 27/27 pass (10/10 tests/test_matching.py — identical→auto, word-order, safe typo, cross-section NOT confused (3x1,5 vs 3x2,5 excluded from candidates), diameter 20mm vs 25mm not confused, different core count 3x1,5 vs 5x1,5 → no match & empty candidates, unit mismatch → requires_confirmation, no catalog entry → no match & no candidates, several similar → candidates+confirmation, prices only from catalog; 17/17 tests/backend_test.py — auth, seed, upload validation, async analyze + catalog matching (explicit trade='elektryka' yields ≥1 catalog-priced item, fallback to project.trade='wykonczenia', reanalyze), compute_totals math, PDF hides Narzut/Marża/Zysk, multi-tenant scoping). Live estimate d879d4ef (trade=wykonczenia, 18 items) inspected via GET /api/estimates/{id}: 3 items catalog-matched (price>0, price_source='catalog', catalog_id/name set), 15 unmatched (price=0, price_source=null), 7 of them requires_confirmation=true with a non-empty candidate_matches list where every candidate carries catalog_id/catalog_name/unit/unit_price/score. Invariants verified programmatically: no item has unit_price>0 with a non-catalog/non-user price_source (AI never invents prices), no null-source item carries a price, no requires_confirmation item has a price, every requires_confirmation item has ≥1 candidate. Wrong cross-section test could not be re-run live because Emergent LLM budget key is EXHAUSTED right now ('Budget has been exceeded! Current cost: 1.089 / Max 1.0'); the algorithmic guarantee is however proven by the unit tests (cross_section_not_confused, cores_count_matters) and by inspection of matching.py where extract_params() splits cores/diameter/measures and _spec_state() marks any parameter-class disjoint set as a hard conflict which both disqualifies the candidate from auto-match AND excludes it from candidate_matches. Frontend (mobile, 390x844): login test@budkoszt.pl/test123 OK → editor opened for estimate with 7 uncertain items; the 'Wymaga potwierdzenia' amber badge (7 initial) and the section title 'Nie znaleziono pewnego dopasowania — wybierz pozycję:' render for every uncertain item; each candidate row shows name + unit + 'dopasowanie N%' + price and its testID follows item-candidate-{idx}-{catalog_id}; tapping the first candidate set unit_price, flipped the badge to green 'Cena: katalog' (count 3→4), dropped 'Wymaga potwierdzenia' (7→6), and 'DO ZAPŁATY' recomputed live (2 089,03 zł → 5 072,40 zł). 'Dopasuj z katalogu' modal still opens with picker-search and 'Wpisz cenę ręcznie' fallback. Qty + increments (63→64). Save toast 'Zapisano kosztorys' shown. PDF downloads as oferta_{id}.pdf; PDF-content assertions (no Narzut/Marża/Zysk, has Wartość netto + DO ZAPŁATY) already covered by test_pdf_hides_internals. Deprecated packages detected: none. SafeAreaView issues detected: none.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_matching.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Emergent LLM key budget is EXHAUSTED (Current cost 1.089 / Max 1.0). New /api/ai/analyze calls fail with 'Budget has been exceeded'. Top up the key so live re-analyses can be exercised in future iterations. Existing estimates with pre-computed items still work fully in the UI."
+  ],
+  "critical_code_review_comments": [
+    "matching.py:56-99 extract_params correctly canonicalizes cores (NxSection), diameter (fi/DN/Ø/mm), and measure units; comma-decimal handled via _f().",
+    "matching.py:150-169 _spec_state marks any disjoint parameter-class as a hard conflict → item is filtered out (line 192) both from auto-match AND from candidate_matches — this is what makes 3x1,5 unable to accept a 3x2,5 catalog price. Confirmed by unit test cross_section_not_confused.",
+    "matching.py:220-224 second-best proximity guard (≥ best-0.05 AND ≥ threshold) forces requires_confirmation instead of a coin-flip auto-match — good safety net.",
+    "server.run_analysis (from prior iteration): matched items get price_source='catalog' + catalog price; uncertain items keep unit_price=0 with candidate_matches passed through unchanged. Confirmed on live estimate d879d4ef and backend_test.test_analyze_completes_with_items.",
+    "frontend estimate/[id].tsx:290-299 renders the confirmation UI exactly per spec (title 'Nie znaleziono pewnego dopasowania — wybierz pozycję:', candidate name/unit/percent/price, testID item-candidate-{idx}-{catalog_id}).",
+    "@app.on_event startup/shutdown remain deprecated (carry-over note from iter 2, non-blocking)."
+  ],
+  "updated_files": ["/app/test_reports/iteration_3.json", "/app/test_reports/pytest/pytest_results.xml"],
+  "success_rate": {"backend": "100% (27/27, matching 10/10 + backend_test 17/17)", "frontend": "100% (login/badges/confirm-section/candidate-pick/live-gross/picker-modal/qty+/-/save/pdf)"},
+  "seed_data_creation": "No new seed data created. UI test reused an existing completed estimate (d879d4ef-461a-4ab3-bb75-b875f8049cc2, trade=wykonczenia) that already contains catalog-matched, unmatched, and requires_confirmation items — ideal fixture without spending LLM budget.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "matching.py logic is fully covered by tests/test_matching.py (10 unit tests) and tests/backend_test.py (17 integration + auth tests). Run: cd /app/backend && pytest tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml . If Emergent LLM budget is still exhausted, skip AI live-flow tests and rely on the unit tests + the pre-seeded estimate d879d4ef for UI testing. Frontend confirm-flow selector: [data-testid^='item-candidate-'] .first triggers a live price/gross update and flips the badge.",
+  "rca_of_issue": "N/A — no bugs found. One environmental blocker: Emergent LLM budget exhausted on the shared key, which prevents fresh /api/ai/analyze calls but does not affect existing data or matching logic."
+}

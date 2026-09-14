@@ -1,0 +1,35 @@
+{
+  "summary": "LIVE end-to-end AI matching flow re-verified after EMERGENT_LLM_KEY recharge — everything green. (1) Full backend pytest: 27/27 pass in 133.86s (tests/test_matching.py 10/10 + tests/backend_test.py 17/17), including three tests that make real /api/ai/analyze calls (test_analyze_returns_processing_immediately, test_analyze_completes_with_items, test_trade_explicit_elektryka, test_trade_fallback_to_project, test_reanalyze) — none failed with budget error, confirming the key is recharged. (2) Dedicated live safety script /tmp/live_ai_safety_test.py drove a fresh POST /api/ai/analyze with trade='elektryka' and description mentioning 'przewód YDY 3x1,5 60 mb', 'rura fi20 40 mb' and '8 gniazd pojedynczych podtynkowych'. API returned analysis_status=processing in 0.08s (truly async), then polling saw analysis_status=completed with 15 items. YDY 3x1,5 line auto-matched to catalog id c8962396 (Przewód YDYp 3x1,5) at 3.20 zł/mb — NEVER to the 3x2,5 catalog id 8a9b5906 (4.80 zł); YDY 3x2,5 line correctly matched to the 4.80 zł entry; mixed-cross-section labour line ('Układanie przewodów… YDY 3x1,5 oraz 3x2,5') kept unit_price=0, price_source=null and requires_confirmation=true with 2 non-empty labour candidates — exactly the safety-first behaviour (uncertain → confirmation rather than a wrong price). Programmatic invariants verified: no item with unit_price>0 unless price_source in ('catalog','user'); no null-source item carries a price; no requires_confirmation item carries a price; every requires_confirmation item has ≥1 candidate with (catalog_id,catalog_name,unit,unit_price,score); candidate_matches for the 3x1,5 item did NOT contain the 3x2,5 id and vice-versa. POST /api/estimates/{id}/reanalyze on the same estimate returned processing→completed with items again (14 the second run). (3) Frontend UI test on mobile viewport 390x844: login test@budkoszt.pl/test123 OK; the freshly-analyzed estimate (8a8aa437-df9c-4183-a149-45261964afaf) opens in editor showing 14 items, 8 'Wymaga potwierdzenia' amber badges + 2 'Cena: katalog' green badges initially; every uncertain item renders the amber panel with title 'Nie znaleziono pewnego dopasowania — wybierz pozycję:' and candidate rows exposing name + unit + 'dopasowanie N%' + price with testID item-candidate-{idx}-{catalog_id}; tapping the first candidate (Przewód YDYp 3x1,5, 95%, 3,20 zł) flipped that item's badge from 'Wymaga potwierdzenia' → 'Cena: katalog' (counts 8→7 and 2→3) and 'DO ZAPŁATY (BRUTTO)' recomputed live 496,28 zł → 756,06 zł. Save button produced toast 'Zapisano kosztorys'. Deprecated packages detected: none. SafeAreaView issues detected: none. Only console noise is React Native web's benign 'useNativeDriver not supported' animation warning (already-known Expo-web limitation, not a bug).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_matching.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/tmp/live_ai_safety_test.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "matching.py extract_params + _spec_state hard-conflict rule proven live: real Gemini output for 'YDY 3x1,5' resolved to catalog id c8962396 (3.20) and 3x2,5 catalog id 8a9b5906 was neither the auto-match nor a candidate — exact safety promise upheld.",
+    "server.run_analysis correctly marks matched items with price_source='catalog'+catalog_id/name and unmatched-uncertain items with unit_price=0/price_source=null/requires_confirmation=true+candidate_matches — verified programmatically on fresh estimate 8a8aa437.",
+    "/api/ai/analyze remains truly async (returned in 0.08s in live test)."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_4.json",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "success_rate": {
+    "backend": "100% (27/27 pytest, plus custom live-safety script pass)",
+    "frontend": "100% (login, editor with fresh AI items, badges, candidate pick with live gross recompute, save toast)"
+  },
+  "seed_data_creation": "Live test created client TEST_ElecSafety_e65791 with project TEST_ElecSafety (trade=elektryka) and estimate 8a8aa437-df9c-4183-a149-45261964afaf which now stays in the DB as a canonical live-verified fixture for future UI/regression runs.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Emergent LLM key is now recharged and live /api/ai/analyze works. Reference fresh estimate 8a8aa437-df9c-4183-a149-45261964afaf (user test@budkoszt.pl) contains catalog-matched + requires_confirmation items ideal for UI tests without spending more LLM budget. Run: cd /app/backend && pytest tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml . Live safety script kept at /tmp/live_ai_safety_test.py (drives a fresh AI call with YDY 3x1,5 + fi20 + gniazda pojedyncze and asserts no 3x2,5 confusion, no invented prices, non-empty candidates for uncertain items).",
+  "rca_of_issue": "N/A — no bugs. Previous iteration's environmental blocker (LLM budget exhausted) is resolved and the fresh-AI safety property (never confuse 3x1,5 with 3x2,5) holds end-to-end on a real Gemini response."
+}

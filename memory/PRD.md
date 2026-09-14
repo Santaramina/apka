@@ -52,3 +52,11 @@ Ceny snapshotowane w kosztorysie (zmiana ceny w katalogu nie zmienia historyczne
 - Osobny wydruk PDF kosztorysu wewnętrznego (dla wykonawcy)
 - Cena zakupu materiału (koszt) obok ceny sprzedaży → dokładniejszy zysk
 - Uczenie na rzeczywistych kosztach; integracja z hurtownią
+
+## Ulepszenie dopasowania do katalogu (2026-06)
+Zmienione pliki: backend/matching.py (przepisany), backend/server.py (integracja w run_analysis, pola pozycji requires_confirmation + candidate_matches), backend/tests/test_matching.py (NOWY, 10 testów), frontend/app/estimate/[id].tsx (sekcja potwierdzenia + kandydaci, badge „Wymaga potwierdzenia").
+- Matcher świadomy parametrów technicznych: przekrój (3x1,5 vs 3x2,5), liczba żył (3x1,5 vs 5x1,5), średnica (20mm/fi20 vs 25mm), jednostki, napięcie/moc/pojemność. Konflikt parametru = pozycja wykluczona (nigdy nie proponowana).
+- Progi: AUTO=0.72 (pewne, po potwierdzeniu parametrów i zgodności jednostki), CANDIDATE=0.30 (pokazanie kandydatów). Bliskie wyniki dwóch najlepszych → wymaga potwierdzenia.
+- Wynik: matched / requires_confirmation + candidate_matches[{catalog_id, catalog_name, unit, unit_price, score}].
+- Gwarancja: żadna cena z AI nie trafia do kosztorysu; cena tylko z katalogu (auto) lub po ręcznym wyborze/wpisaniu.
+- Testy: 27/27 (10 matcher + 17 backend) — potwierdzone przez agenta testującego.

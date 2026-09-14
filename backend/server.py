@@ -166,6 +166,8 @@ class EstimateItemIn(BaseModel):
     confidence: Optional[float] = None
     catalog_id: Optional[str] = None
     catalog_name: Optional[str] = None
+    requires_confirmation: Optional[bool] = False
+    candidate_matches: Optional[List[dict]] = None
 
 
 class EstimateIn(BaseModel):
@@ -536,32 +538,35 @@ async def run_analysis(estimate_id: str, user_id: str, description: str, image_p
         )
         materials = await db.materials.find({"user_id": user_id, "deleted_at": None}, {"_id": 0}).to_list(2000)
         labor = await db.labor_rates.find({"user_id": user_id, "deleted_at": None}, {"_id": 0}).to_list(2000)
+        mat_pool = [{"id": m["material_id"], "name": m.get("name", ""), "unit": m.get("unit", ""), "price": float(m.get("unit_price", 0) or 0)} for m in materials]
+        lab_pool = [{"id": l["labor_id"], "name": l.get("name", ""), "unit": l.get("unit", ""), "price": float(l.get("rate", 0) or 0)} for l in labor]
 
         items = []
         for it in result["items"]:
             kind = it.get("kind", "material")
             name = it.get("name", "Pozycja")
             unit = it.get("unit", "szt")
+            pool = lab_pool if kind == "labor" else (mat_pool if kind == "material" else [])
+            res = matching.match_catalog(name, unit, pool) if pool else {"matched": False, "requires_confirmation": False, "best": None, "candidate_matches": []}
+
             price = 0.0
             price_source = None
             catalog_id = None
             catalog_name = None
-            matched = None
-            if kind == "labor":
-                matched, _ = matching.best_match(name, labor, "name")
-                if matched:
-                    price = float(matched.get("rate", 0) or 0)
-                    catalog_id = matched.get("labor_id")
-            elif kind == "material":
-                matched, _ = matching.best_match(name, materials, "name")
-                if matched:
-                    price = float(matched.get("unit_price", 0) or 0)
-                    catalog_id = matched.get("material_id")
-            if matched:
+            requires_confirmation = False
+            candidate_matches = []
+            if res["matched"]:
+                b = res["best"]
+                price = float(b["unit_price"] or 0)
                 price_source = "catalog"
-                catalog_name = matched.get("name")
+                catalog_id = b["catalog_id"]
+                catalog_name = b["catalog_name"]
                 if not unit or unit == "szt":
-                    unit = matched.get("unit", unit)
+                    unit = b.get("unit") or unit
+            else:
+                requires_confirmation = bool(res.get("requires_confirmation"))
+                candidate_matches = res.get("candidate_matches", [])
+
             items.append(
                 {
                     "item_id": str(uuid.uuid4()),
@@ -577,6 +582,8 @@ async def run_analysis(estimate_id: str, user_id: str, description: str, image_p
                     "confidence": it.get("confidence"),
                     "catalog_id": catalog_id,
                     "catalog_name": catalog_name,
+                    "requires_confirmation": requires_confirmation,
+                    "candidate_matches": candidate_matches,
                 }
             )
         await db.estimates.update_one(
