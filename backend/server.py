@@ -17,6 +17,7 @@ from starlette.middleware.cors import CORSMiddleware
 import requests
 
 import ai_service
+import image_utils
 import matching
 import pdf_service
 import storage_service
@@ -457,20 +458,31 @@ async def delete_labor(labor_id: str, user: dict = Depends(get_current_user)):
 
 # ----------------------------- Uploads / Files -----------------------------
 _EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "audio/m4a": "m4a", "audio/mp4": "m4a", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-wav": "wav", "audio/aac": "aac", "audio/ogg": "ogg"}
-_ALLOWED_TYPES = set(_EXT.keys())
+# Accepted upload MIME types (HEIC/HEIF allowed on input; converted to JPEG before storage).
+_IMAGE_INPUT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"}
+_ALLOWED_TYPES = set(_EXT.keys()) | _IMAGE_INPUT_TYPES
 _MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 
 @api.post("/upload")
 async def upload_file(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     data = await file.read()
-    content_type = (file.content_type or "").lower()
-    if content_type not in _ALLOWED_TYPES:
-        raise HTTPException(status_code=400, detail="Niedozwolony typ pliku (dozwolone: zdjęcia JPEG/PNG/WEBP oraz nagrania audio)")
+    content_type = (file.content_type or "").lower().split(";")[0].strip()
     if len(data) == 0:
         raise HTTPException(status_code=400, detail="Pusty plik")
     if len(data) > _MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="Plik jest za duży (maksymalnie 20 MB)")
+
+    is_image = content_type.startswith("image/")
+    if is_image:
+        # Trust the actual bytes, not the declared type. Convert HEIC/HEIF -> JPEG.
+        try:
+            data, content_type = await run_in_threadpool(image_utils.normalize_image, data, content_type)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    elif content_type not in _ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Niedozwolony typ pliku (dozwolone: zdjęcia JPEG/PNG/WEBP/HEIC oraz nagrania audio)")
+
     ext = _EXT.get(content_type, "bin")
     path = f"{storage_service.APP_NAME}/uploads/{user['user_id']}/{uuid.uuid4().hex}.{ext}"
     await run_in_threadpool(storage_service.put_object, path, data, content_type)

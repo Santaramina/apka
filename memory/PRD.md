@@ -60,3 +60,9 @@ Zmienione pliki: backend/matching.py (przepisany), backend/server.py (integracja
 - Wynik: matched / requires_confirmation + candidate_matches[{catalog_id, catalog_name, unit, unit_price, score}].
 - Gwarancja: żadna cena z AI nie trafia do kosztorysu; cena tylko z katalogu (auto) lub po ręcznym wyborze/wpisaniu.
 - Testy: 27/27 (10 matcher + 17 backend) — potwierdzone przez agenta testującego.
+
+## Bugfix — Upload zdjęć / HEIC (iOS)
+- Przyczyna: `capture.tsx` wysyłał każde zdjęcie na sztywno jako `zdjecie_X.jpg` + `image/jpeg`. iOS zwracał czasem HEIC/HEIF (lub PNG/WEBP) → backend zapisywał bajty HEIC pod `.jpg`, a Gemini nie odczytywał HEIC → ogólny błąd „Analiza nie powiodła się”.
+- Frontend: każde zdjęcie normalizowane do JPEG przez `expo-image-manipulator` przed uploadem (rozwiązuje HEIC/HEIF/PNG/WEBP). `uploadFile()` nie koduje typu na sztywno. Komunikaty per zdjęcie: „Nie udało się przesłać zdjęcia N…”.
+- Backend `/api/upload`: rozpoznanie formatu z realnych bajtów (`image_utils.sniff_image_type`), zabezpieczenie HEIC/HEIF → JPEG (Pillow + pillow-heif) przed zapisem/AI. Dodano `pillow_heif` do requirements.
+- Testy: `tests/test_upload.py` 10/10 + weryfikacja live endpointu (JPEG/PNG/WEBP/HEIC/mislabeled/empty/garbage/wrong-type). Zwrócony `path` poprawnie trafia do `/ai/analyze`.

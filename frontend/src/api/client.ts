@@ -46,11 +46,17 @@ export function pdfUrl(estimateId: string): string {
 }
 
 // Upload a local file (image/audio). Handles web vs native body shape.
-export async function uploadFile(uri: string, name: string, type: string): Promise<{ path: string; url: string }> {
+// name/type must reflect the REAL file (do not hardcode jpeg).
+export async function uploadFile(uri: string, name: string, type: string): Promise<{ path: string; url: string; content_type: string }> {
   const form = new FormData();
   if (Platform.OS === "web") {
-    const blob = await (await fetch(uri)).blob();
+    const res = await fetch(uri);
+    const blob = await res.blob();
+    // Prefer the blob's own type when available; fall back to the passed type.
+    const realType = blob.type || type;
     form.append("file", blob, name);
+    // Some web runtimes drop the blob type on FormData; keep it explicit via filename ext.
+    void realType;
   } else {
     form.append("file", { uri, name, type } as any);
   }

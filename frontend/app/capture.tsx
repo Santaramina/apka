@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder } from "expo-audio";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Camera, Images, Microphone, Stop, TextT, Trash, X } from "phosphor-react-native";
@@ -99,13 +100,33 @@ export default function Capture() {
     try {
       const imagePaths: string[] = [];
       for (let i = 0; i < photos.length; i++) {
-        const up = await uploadFile(photos[i], `zdjecie_${i}.jpg`, "image/jpeg");
-        imagePaths.push(up.path);
+        // Normalize every photo to JPEG on-device (handles HEIC/HEIF/PNG/WEBP from iOS/Android).
+        let jpegUri = photos[i];
+        try {
+          const ctx = ImageManipulator.manipulate(photos[i]);
+          const rendered = await ctx.renderAsync();
+          const out = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.6 });
+          jpegUri = out.uri;
+        } catch {
+          // fall back to original uri; backend has a HEIC->JPEG safety net
+        }
+        try {
+          const up = await uploadFile(jpegUri, `zdjecie_${i + 1}.jpg`, "image/jpeg");
+          imagePaths.push(up.path);
+        } catch (upErr: any) {
+          const detail = upErr?.message ? ` (${upErr.message})` : "";
+          throw new Error(`Nie udało się przesłać zdjęcia ${i + 1}. Sprawdź format lub spróbuj ponownie.${detail}`);
+        }
       }
       let audioPath: string | null = null;
       if (audioUri) {
-        const up = await uploadFile(audioUri, "nagranie.m4a", "audio/m4a");
-        audioPath = up.path;
+        try {
+          const up = await uploadFile(audioUri, "nagranie.m4a", "audio/m4a");
+          audioPath = up.path;
+        } catch (upErr: any) {
+          const detail = upErr?.message ? ` (${upErr.message})` : "";
+          throw new Error(`Nie udało się przesłać nagrania głosowego. Spróbuj nagrać ponownie.${detail}`);
+        }
       }
       const est = await apiFetch<{ estimate_id: string }>("/ai/analyze", {
         method: "POST",
