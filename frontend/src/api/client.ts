@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { File, UploadType } from "expo-file-system";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL ?? "";
 
@@ -45,20 +46,41 @@ export function pdfUrl(estimateId: string): string {
   return `${BASE}/api/estimates/${estimateId}/pdf?token=${encodeURIComponent(authToken || "")}`;
 }
 
-// Upload a local file (image/audio). Handles web vs native body shape.
-// name/type must reflect the REAL file (do not hardcode jpeg).
+// Upload a local file (image/audio).
+// Native (iOS/Android): uses expo-file-system's NATIVE multipart upload (file.upload),
+// because the { uri, name, type } FormData shape is not supported by Expo/iOS networking
+// ("Unsupported FormDataPart implementation"). Web keeps the Blob + FormData path.
 export async function uploadFile(uri: string, name: string, type: string): Promise<{ path: string; url: string; content_type: string }> {
-  const form = new FormData();
   if (Platform.OS === "web") {
-    const res = await fetch(uri);
-    const blob = await res.blob();
-    // Prefer the blob's own type when available; fall back to the passed type.
-    const realType = blob.type || type;
+    const form = new FormData();
+    const blob = await (await fetch(uri)).blob();
     form.append("file", blob, name);
-    // Some web runtimes drop the blob type on FormData; keep it explicit via filename ext.
-    void realType;
-  } else {
-    form.append("file", { uri, name, type } as any);
+    return apiFetch("/upload", { method: "POST", body: form, isForm: true });
   }
-  return apiFetch("/upload", { method: "POST", body: form, isForm: true });
+
+  const headers: Record<string, string> = {};
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+
+  const file = new File(uri);
+  const res = await file.upload(`${BASE}/api/upload`, {
+    httpMethod: "POST",
+    uploadType: UploadType.MULTIPART,
+    fieldName: "file",
+    mimeType: type,
+    headers,
+  });
+
+  if (res.status < 200 || res.status >= 300) {
+    let msg = `Błąd ${res.status}`;
+    try {
+      const j = JSON.parse(res.body);
+      if (j?.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+    } catch {}
+    // Diagnostics for developers only (not surfaced to the user UI).
+    console.warn("[upload] failed", { status: res.status, body: res.body?.slice?.(0, 300), mimeType: type, name, uri });
+    const err: any = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  return JSON.parse(res.body);
 }

@@ -66,3 +66,11 @@ Zmienione pliki: backend/matching.py (przepisany), backend/server.py (integracja
 - Frontend: każde zdjęcie normalizowane do JPEG przez `expo-image-manipulator` przed uploadem (rozwiązuje HEIC/HEIF/PNG/WEBP). `uploadFile()` nie koduje typu na sztywno. Komunikaty per zdjęcie: „Nie udało się przesłać zdjęcia N…”.
 - Backend `/api/upload`: rozpoznanie formatu z realnych bajtów (`image_utils.sniff_image_type`), zabezpieczenie HEIC/HEIF → JPEG (Pillow + pillow-heif) przed zapisem/AI. Dodano `pillow_heif` do requirements.
 - Testy: `tests/test_upload.py` 10/10 + weryfikacja live endpointu (JPEG/PNG/WEBP/HEIC/mislabeled/empty/garbage/wrong-type). Zwrócony `path` poprawnie trafia do `/ai/analyze`.
+
+## Bugfix v2 — "Unsupported FormDataPart implementation" (iOS upload)
+- Przyczyna: natywny upload przez `FormData.append("file", { uri, name, type })` nie jest wspierany przez sieć Expo/iOS (RN 0.86 / Expo 57) → wyjątek "Unsupported FormDataPart implementation" (mylnie pokazywany jako błąd formatu).
+- Rozwiązanie: `uploadFile()` (native iOS/Android) używa NATYWNEGO multipart uploadu z `expo-file-system@57` → `new File(uri).upload(url, { uploadType: UploadType.MULTIPART, fieldName: "file", mimeType, headers })`. Web dalej używa Blob + FormData.
+- Kontrakt `/api/upload` bez zmian (multipart/form-data, pole `file`), zachowany safety-net HEIC/HEIF→JPEG.
+- Komunikaty: pokazujemy tylko znane błędy backendu (PL); surowe błędy techniczne → "Nie udało się przesłać zdjęcia N. Spróbuj ponownie." Diagnostyka (status/body/mime/name/uri) tylko w console.warn.
+- Wersje: expo 57.0.19, expo-file-system ~57.0.7, react-native 0.86.3.
+- Testy: pytest 20/20; tsc/lint czyste; web bundle OK. Natywny upload wymaga testu w Expo Go / buildzie na iOS (web preview używa gałęzi web).

@@ -114,8 +114,9 @@ export default function Capture() {
           const up = await uploadFile(jpegUri, `zdjecie_${i + 1}.jpg`, "image/jpeg");
           imagePaths.push(up.path);
         } catch (upErr: any) {
-          const detail = upErr?.message ? ` (${upErr.message})` : "";
-          throw new Error(`Nie udało się przesłać zdjęcia ${i + 1}. Sprawdź format lub spróbuj ponownie.${detail}`);
+          // Only surface known backend messages (Polish); hide raw technical errors.
+          const known = typeof upErr?.status === "number" && upErr?.message;
+          throw new Error(known ? `Nie udało się przesłać zdjęcia ${i + 1}. ${upErr.message}` : `Nie udało się przesłać zdjęcia ${i + 1}. Spróbuj ponownie.`);
         }
       }
       let audioPath: string | null = null;
@@ -124,8 +125,8 @@ export default function Capture() {
           const up = await uploadFile(audioUri, "nagranie.m4a", "audio/m4a");
           audioPath = up.path;
         } catch (upErr: any) {
-          const detail = upErr?.message ? ` (${upErr.message})` : "";
-          throw new Error(`Nie udało się przesłać nagrania głosowego. Spróbuj nagrać ponownie.${detail}`);
+          const known = typeof upErr?.status === "number" && upErr?.message;
+          throw new Error(known ? `Nie udało się przesłać nagrania. ${upErr.message}` : "Nie udało się przesłać nagrania. Spróbuj ponownie.");
         }
       }
       const est = await apiFetch<{ estimate_id: string }>("/ai/analyze", {
