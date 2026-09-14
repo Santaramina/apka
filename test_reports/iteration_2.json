@@ -1,0 +1,31 @@
+{
+  "summary": "BudKoszt Pro refactor (async AI + catalog price matching + trade flow + PDF client offer) tested end-to-end. Backend: 17/17 pytest assertions pass. POST /api/ai/analyze returns in <10s with analysis_status='processing' and an estimate_id (non-blocking). Polling GET /api/estimates/{id} eventually reports analysis_status='completed' with items[] carrying kind/name/quantity/unit/unit_price/price_source/quantity_source/confidence/catalog_id/catalog_name; matched items have price_source='catalog' and unit_price>0 pulled from the user's materials/labor catalog; unmatched items have price_source=null and unit_price=0. AI never returns invented prices (price_source is never 'ai'). Trade flow verified: explicit trade='elektryka' works and yields at least one catalog match (e.g. przewód YDY); when trade is omitted, project.trade='wykonczenia' is used as fallback and returned on the estimate. /reanalyze re-runs (status back to processing then completed). Upload validation: text/plain 400, oversize>20MB 400, image/jpeg 200. compute_totals math verified exact (subtotal=800, markup=80, margin=40, net=920, vat=211.60, gross=1131.60, profit=120.00). PDF is application/pdf with %PDF- magic; pypdf text extraction confirms it contains 'Wartość netto' and 'DO ZAPŁATY' but NEVER 'Narzut', 'Marża' or 'Zysk'. Multi-tenant scoping: a second registered user gets 404 on the first user's estimate/client/project (both GET and PUT). Frontend: login (test@budkoszt.pl/test123) → Pulpit with 15 estimates. Estimate editor opens, shows POZYCJE with source badges 'Ilość: ręczna' and 'Brak w katalogu'; qty +/- now works correctly (10→12 after two plus clicks, →11 after minus) — the previous iteration's qty-plus regression is FIXED. Catalog picker modal (Dopasuj z katalogu) opens with 30 catalog items and 'Wpisz cenę ręcznie' fallback; picking an item updates the price live and DO ZAPŁATY recomputes (from 1131.60 to 4271.79 zł). Save produces a green 'Zapisano kosztorys' toast. Settings toggle exposes Narzut/Marża/Rabat/VAT inputs and status chips (draft/sent/accepted found). Deprecated packages detected: none. SafeAreaView issues detected: none. Only warnings: useNativeDriver JS-fallback (RN Web, non-blocking) — previously flagged.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Animated (RN Web)", "issue": "Console warning: `useNativeDriver` not supported — falls back to JS animation. Non-blocking for Expo web preview; on device pass useNativeDriver:false or gate with Platform.OS!=='web'."}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Verify a 4th status chip is intended: found status-draft, status-sent, status-accepted; status-done testID is not rendered. Confirm if a 'Zrealizowana' / 'done' state should be exposed (review request lists Status generically, no specific list).",
+    "(Cosmetic) Silence useNativeDriver JS fallback warning on web."
+  ],
+  "critical_code_review_comments": [
+    "server.py:604-638 correctly kicks background AI task and returns processing state — non-blocking as required.",
+    "server.py run_analysis: matching only sets price for matched items, unmatched stays 0 with price_source=null — matches spec (AI never invents prices).",
+    "pdf_service builds client offer where markup+margin are baked into unit price (factor = 1 + (markup+margin)/100); internal terms are not printed — verified via pypdf text extraction.",
+    "@app.on_event startup/shutdown are deprecated; migrate to lifespan handlers.",
+    "PDF and /files endpoints correctly accept both Authorization header and ?token= query — needed for <img>/<a> on web."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml", "/app/test_reports/iteration_2.json"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "~100% (login/dashboard/editor/badges/qty+&-/catalog-picker/price-update/save/settings all OK)"},
+  "seed_data_creation": "Tests create TEST_ clients/projects and one throwaway u2 user (test_u2_*). AI-created estimates are left in place for UI reuse; cleanup deletes the primary TEST_ client/project after AI/PDF tests. Harmless residue from prior runs remains.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest at /app/backend/tests/backend_test.py — all 17 pass under xdist loadscope (dependent tests kept in TestAIAsync class so estimate_id survives on one worker). PDF text-content check uses pypdf.PdfReader.extract_text. Frontend flows all pass. Prior qty '+' regression is resolved.",
+  "rca_of_issue": "N/A — no bugs found this iteration."
+}

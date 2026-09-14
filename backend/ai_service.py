@@ -24,9 +24,10 @@ TRADE_LABELS = {
 
 SYSTEM_MESSAGE = (
     "Jesteś doświadczonym kosztorysantem budowlano-instalacyjnym w Polsce. "
-    "Analizujesz zdjęcia z budowy, opis głosowy/tekstowy zakresu prac i przygotowujesz "
-    "wstępny kosztorys. Zawsze odpowiadasz WYŁĄCZNIE poprawnym obiektem JSON, bez komentarzy, "
-    "bez bloków markdown. Ceny podajesz w PLN (netto), realistyczne dla polskiego rynku. "
+    "Analizujesz zdjęcia z budowy oraz opis głosowy/tekstowy i rozpoznajesz ZAKRES PRAC. "
+    "Twoim zadaniem jest wypisać potrzebne materiały i robociznę wraz z ILOŚCIAMI i JEDNOSTKAMI. "
+    "NIE PODAJESZ CEN — ceny pochodzą z katalogu użytkownika, nie od Ciebie. "
+    "Zawsze odpowiadasz WYŁĄCZNIE poprawnym obiektem JSON, bez komentarzy, bez bloków markdown. "
     "Jednostki: m2, mb, szt, kpl, godz, m3, pkt. "
     "Rodzaje pozycji (kind): 'material' (materiał), 'labor' (robocizna), 'extra' (koszty dodatkowe)."
 )
@@ -40,16 +41,17 @@ Zwróć obiekt JSON o strukturze:
   "items": [
     {
       "kind": "material | labor | extra",
-      "name": "nazwa pozycji po polsku",
+      "name": "precyzyjna nazwa materiału lub rodzaju pracy po polsku (np. 'przewód YDY 3x2,5', 'układanie płytek')",
       "unit": "jednostka (m2, mb, szt, kpl, godz, m3, pkt)",
       "quantity": liczba (szacunkowa ilość),
-      "unit_price": liczba (szacunkowa cena jednostkowa netto w PLN),
-      "note": "krótka uwaga lub podstawa oszacowania"
+      "confidence": liczba 0.0-1.0 (jak pewny jesteś rozpoznania i ilości),
+      "note": "krótka uwaga lub podstawa oszacowania ilości"
     }
   ]
 }
-Podaj kompletną listę: materiały, robociznę i ewentualne koszty dodatkowe.
-Jeśli czegoś nie da się ustalić ze zdjęć, oszacuj rozsądnie na podstawie opisu.
+NIE PODAWAJ pola z ceną. Podaj kompletną listę: materiały, robociznę i ewentualne koszty dodatkowe.
+Podawaj dokładne, konkretne nazwy materiałów (typ, przekrój, wymiar), aby dało się je dopasować do katalogu.
+Jeśli ilości nie da się ustalić ze zdjęć, oszacuj rozsądnie na podstawie opisu i obniż confidence.
 """
 
 
@@ -114,13 +116,17 @@ async def analyze_site(session_id, description, images, audio, trade):
     items = []
     for it in data.get("items", []):
         try:
+            conf = it.get("confidence", None)
+            conf = float(conf) if conf is not None else None
+            if conf is not None:
+                conf = max(0.0, min(1.0, conf))
             items.append(
                 {
                     "kind": it.get("kind", "material"),
                     "name": str(it.get("name", "")).strip() or "Pozycja",
                     "unit": str(it.get("unit", "szt")).strip() or "szt",
                     "quantity": float(it.get("quantity", 1) or 1),
-                    "unit_price": float(it.get("unit_price", 0) or 0),
+                    "confidence": conf,
                     "note": str(it.get("note", "")).strip(),
                 }
             )

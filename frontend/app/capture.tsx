@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder } from "expo-audio";
@@ -25,6 +25,7 @@ export default function Capture() {
   const insets = useSafeAreaInsets();
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const { data: project } = useQuery({ queryKey: ["project", projectId], queryFn: () => apiFetch(`/projects/${projectId}`), enabled: !!projectId });
 
   const [photos, setPhotos] = useState<string[]>([]);
   const [audioUri, setAudioUri] = useState<string | null>(null);
@@ -108,7 +109,7 @@ export default function Capture() {
       }
       const est = await apiFetch<{ estimate_id: string }>("/ai/analyze", {
         method: "POST",
-        body: { project_id: projectId, description: note, image_paths: imagePaths, audio_path: audioPath },
+        body: { project_id: projectId, trade: project?.trade, description: note, image_paths: imagePaths, audio_path: audioPath },
       });
       qc.invalidateQueries({ queryKey: ["estimates"] });
       qc.invalidateQueries({ queryKey: ["project", projectId] });

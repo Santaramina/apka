@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from fastapi import APIRouter, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
@@ -17,6 +17,7 @@ from starlette.middleware.cors import CORSMiddleware
 import requests
 
 import ai_service
+import matching
 import pdf_service
 import storage_service
 from db import db, now_utc
@@ -47,30 +48,48 @@ def public_user(user: dict) -> dict:
 
 
 def compute_totals(est: dict) -> dict:
-    subtotal = 0.0
+    materials_cost = labor_cost = extra_cost = 0.0
     for it in est.get("items", []):
-        subtotal += float(it.get("quantity", 0) or 0) * float(it.get("unit_price", 0) or 0)
+        line = float(it.get("quantity", 0) or 0) * float(it.get("unit_price", 0) or 0)
+        kind = it.get("kind", "material")
+        if kind == "labor":
+            labor_cost += line
+        elif kind == "extra":
+            extra_cost += line
+        else:
+            materials_cost += line
+    subtotal = materials_cost + labor_cost + extra_cost
     markup_pct = float(est.get("markup_percent", 0) or 0)
+    margin_pct = float(est.get("margin_percent", 0) or 0)
     discount_pct = float(est.get("discount_percent", 0) or 0)
     vat_pct = float(est.get("vat_percent", 23) or 0)
     markup = subtotal * markup_pct / 100.0
-    after_markup = subtotal + markup
-    discount = after_markup * discount_pct / 100.0
-    net = after_markup - discount
+    margin = subtotal * margin_pct / 100.0
+    before_discount = subtotal + markup + margin
+    discount = before_discount * discount_pct / 100.0
+    net = before_discount - discount
     vat = net * vat_pct / 100.0
     gross = net + vat
+    profit = net - subtotal
     return {
+        "materials_cost": round(materials_cost, 2),
+        "labor_cost": round(labor_cost, 2),
+        "extra_cost": round(extra_cost, 2),
         "subtotal": round(subtotal, 2),
         "markup": round(markup, 2),
+        "margin": round(margin, 2),
         "discount": round(discount, 2),
         "net": round(net, 2),
         "vat": round(vat, 2),
         "gross": round(gross, 2),
+        "profit": round(profit, 2),
     }
 
 
 def estimate_out(est: dict) -> dict:
     est = {k: v for k, v in est.items() if k != "_id"}
+    est.setdefault("analysis_status", "completed")
+    est.setdefault("margin_percent", 0)
     est["totals"] = compute_totals(est)
     return est
 
@@ -142,6 +161,11 @@ class EstimateItemIn(BaseModel):
     unit_price: float = 0
     note: Optional[str] = ""
     source: str = "manual"
+    quantity_source: str = "user"
+    price_source: Optional[str] = None
+    confidence: Optional[float] = None
+    catalog_id: Optional[str] = None
+    catalog_name: Optional[str] = None
 
 
 class EstimateIn(BaseModel):
@@ -150,6 +174,7 @@ class EstimateIn(BaseModel):
     scope_summary: Optional[str] = ""
     items: List[EstimateItemIn] = []
     markup_percent: float = 10
+    margin_percent: float = 0
     discount_percent: float = 0
     vat_percent: float = 23
     status: str = "draft"
@@ -160,6 +185,7 @@ class EstimateUpdateIn(BaseModel):
     scope_summary: Optional[str] = None
     items: Optional[List[EstimateItemIn]] = None
     markup_percent: Optional[float] = None
+    margin_percent: Optional[float] = None
     discount_percent: Optional[float] = None
     vat_percent: Optional[float] = None
     status: Optional[str] = None
@@ -168,7 +194,7 @@ class EstimateUpdateIn(BaseModel):
 class AnalyzeIn(BaseModel):
     project_id: str
     description: Optional[str] = ""
-    trade: Optional[str] = "mieszane"
+    trade: Optional[str] = None
     image_paths: List[str] = []
     audio_path: Optional[str] = None
 
@@ -428,17 +454,22 @@ async def delete_labor(labor_id: str, user: dict = Depends(get_current_user)):
 
 
 # ----------------------------- Uploads / Files -----------------------------
-_EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "audio/m4a": "m4a", "audio/mp4": "m4a", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-wav": "wav"}
+_EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "audio/m4a": "m4a", "audio/mp4": "m4a", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-wav": "wav", "audio/aac": "aac", "audio/ogg": "ogg"}
+_ALLOWED_TYPES = set(_EXT.keys())
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 
 @api.post("/upload")
 async def upload_file(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     data = await file.read()
-    content_type = file.content_type or "application/octet-stream"
-    ext = _EXT.get(content_type)
-    if not ext and file.filename and "." in file.filename:
-        ext = file.filename.rsplit(".", 1)[-1].lower()
-    ext = ext or "bin"
+    content_type = (file.content_type or "").lower()
+    if content_type not in _ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Niedozwolony typ pliku (dozwolone: zdjęcia JPEG/PNG/WEBP oraz nagrania audio)")
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Pusty plik")
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="Plik jest za duży (maksymalnie 20 MB)")
+    ext = _EXT.get(content_type, "bin")
     path = f"{storage_service.APP_NAME}/uploads/{user['user_id']}/{uuid.uuid4().hex}.{ext}"
     await run_in_threadpool(storage_service.put_object, path, data, content_type)
     await db.captures.insert_one(
@@ -471,69 +502,160 @@ async def get_file(path: str, token: Optional[str] = Query(None), authorization:
 
 
 # ----------------------------- AI Analyze -----------------------------
-@api.post("/ai/analyze")
-async def analyze(body: AnalyzeIn, user: dict = Depends(get_current_user)):
-    project = await db.projects.find_one({"project_id": body.project_id, "user_id": user["user_id"], "deleted_at": None}, {"_id": 0})
-    if not project:
-        raise HTTPException(status_code=404, detail="Nie znaleziono inwestycji")
-
+async def _load_media(user_id: str, image_paths: List[str], audio_path: Optional[str]):
     images = []
-    for p in body.image_paths[:8]:
-        cap = await db.captures.find_one({"storage_path": p, "user_id": user["user_id"]})
+    for p in image_paths[:8]:
+        cap = await db.captures.find_one({"storage_path": p, "user_id": user_id})
         if not cap:
             continue
         content, ctype = await run_in_threadpool(storage_service.get_object, p)
         images.append((content, ctype))
-
     audio = None
-    if body.audio_path:
-        cap = await db.captures.find_one({"storage_path": body.audio_path, "user_id": user["user_id"]})
+    if audio_path:
+        cap = await db.captures.find_one({"storage_path": audio_path, "user_id": user_id})
         if cap:
-            content, ctype = await run_in_threadpool(storage_service.get_object, body.audio_path)
+            content, ctype = await run_in_threadpool(storage_service.get_object, audio_path)
             audio = (content, ctype)
+    return images, audio
 
-    if not images and not audio and not body.description:
-        raise HTTPException(status_code=400, detail="Dodaj zdjęcie, nagranie lub opis")
 
+async def run_analysis(estimate_id: str, user_id: str, description: str, image_paths: List[str], audio_path: Optional[str], trade: str):
+    """Background task: AI recognizes scope+quantities, then match prices from user's catalog."""
+    await db.estimates.update_one(
+        {"estimate_id": estimate_id},
+        {"$set": {"analysis_status": "processing", "analysis_error": None, "updated_at": now_utc()}},
+    )
     try:
+        images, audio = await _load_media(user_id, image_paths, audio_path)
         result = await ai_service.analyze_site(
             session_id=f"analyze_{uuid.uuid4().hex[:8]}",
-            description=body.description or "",
+            description=description or "",
             images=images,
             audio=audio,
-            trade=body.trade or project.get("trade", "mieszane"),
+            trade=trade,
         )
-    except Exception as e:
-        logger.exception("AI analyze failed")
-        raise HTTPException(status_code=502, detail=f"Analiza AI nie powiodła się: {e}")
+        materials = await db.materials.find({"user_id": user_id, "deleted_at": None}, {"_id": 0}).to_list(2000)
+        labor = await db.labor_rates.find({"user_id": user_id, "deleted_at": None}, {"_id": 0}).to_list(2000)
 
-    items = []
-    for it in result["items"]:
-        items.append({**it, "item_id": str(uuid.uuid4()), "source": "ai"})
+        items = []
+        for it in result["items"]:
+            kind = it.get("kind", "material")
+            name = it.get("name", "Pozycja")
+            unit = it.get("unit", "szt")
+            price = 0.0
+            price_source = None
+            catalog_id = None
+            catalog_name = None
+            matched = None
+            if kind == "labor":
+                matched, _ = matching.best_match(name, labor, "name")
+                if matched:
+                    price = float(matched.get("rate", 0) or 0)
+                    catalog_id = matched.get("labor_id")
+            elif kind == "material":
+                matched, _ = matching.best_match(name, materials, "name")
+                if matched:
+                    price = float(matched.get("unit_price", 0) or 0)
+                    catalog_id = matched.get("material_id")
+            if matched:
+                price_source = "catalog"
+                catalog_name = matched.get("name")
+                if not unit or unit == "szt":
+                    unit = matched.get("unit", unit)
+            items.append(
+                {
+                    "item_id": str(uuid.uuid4()),
+                    "kind": kind,
+                    "name": name,
+                    "unit": unit,
+                    "quantity": float(it.get("quantity", 1) or 1),
+                    "unit_price": round(price, 2),
+                    "note": it.get("note", ""),
+                    "source": "ai",
+                    "quantity_source": "ai",
+                    "price_source": price_source,
+                    "confidence": it.get("confidence"),
+                    "catalog_id": catalog_id,
+                    "catalog_name": catalog_name,
+                }
+            )
+        await db.estimates.update_one(
+            {"estimate_id": estimate_id},
+            {"$set": {
+                "items": items,
+                "scope_summary": result.get("scope_summary", ""),
+                "rooms": result.get("rooms", []),
+                "transcription": result.get("transcription", ""),
+                "analysis_status": "completed",
+                "analysis_error": None,
+                "updated_at": now_utc(),
+            }},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("run_analysis failed")
+        await db.estimates.update_one(
+            {"estimate_id": estimate_id},
+            {"$set": {"analysis_status": "failed", "analysis_error": str(e)[:300], "updated_at": now_utc()}},
+        )
 
+
+@api.post("/ai/analyze")
+async def analyze(body: AnalyzeIn, background: BackgroundTasks, user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"project_id": body.project_id, "user_id": user["user_id"], "deleted_at": None}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Nie znaleziono inwestycji")
+    if not body.image_paths and not body.audio_path and not (body.description or "").strip():
+        raise HTTPException(status_code=400, detail="Dodaj zdjęcie, nagranie lub opis")
+
+    trade = body.trade or project.get("trade", "mieszane")
     est = {
         "estimate_id": str(uuid.uuid4()),
         "user_id": user["user_id"],
         "project_id": body.project_id,
         "client_id": project.get("client_id"),
         "title": f"Kosztorys - {project.get('name', 'inwestycja')}",
-        "scope_summary": result["scope_summary"],
-        "rooms": result.get("rooms", []),
-        "transcription": result.get("transcription", ""),
-        "items": items,
+        "scope_summary": "",
+        "rooms": [],
+        "transcription": "",
+        "items": [],
         "markup_percent": 10,
+        "margin_percent": 0,
         "discount_percent": 0,
         "vat_percent": 23,
         "status": "draft",
         "source": "ai",
+        "description": body.description or "",
         "image_paths": body.image_paths,
         "audio_path": body.audio_path,
+        "trade": trade,
+        "analysis_status": "processing",
+        "analysis_error": None,
         "created_at": now_utc(),
         "updated_at": now_utc(),
         "deleted_at": None,
     }
     await db.estimates.insert_one(est)
+    background.add_task(run_analysis, est["estimate_id"], user["user_id"], body.description or "", body.image_paths, body.audio_path, trade)
     return estimate_out(est)
+
+
+@api.post("/estimates/{estimate_id}/reanalyze")
+async def reanalyze(estimate_id: str, background: BackgroundTasks, user: dict = Depends(get_current_user)):
+    est = await db.estimates.find_one({"estimate_id": estimate_id, "user_id": user["user_id"], "deleted_at": None}, {"_id": 0})
+    if not est:
+        raise HTTPException(status_code=404, detail="Nie znaleziono kosztorysu")
+    await db.estimates.update_one({"estimate_id": estimate_id}, {"$set": {"analysis_status": "processing", "analysis_error": None}})
+    background.add_task(
+        run_analysis,
+        estimate_id,
+        user["user_id"],
+        est.get("description", "") or "",
+        est.get("image_paths", []) or [],
+        est.get("audio_path"),
+        est.get("trade", "mieszane"),
+    )
+    fresh = await db.estimates.find_one({"estimate_id": estimate_id}, {"_id": 0})
+    return estimate_out(fresh)
 
 
 # ----------------------------- Estimates -----------------------------
@@ -572,6 +694,7 @@ async def create_estimate(body: EstimateIn, user: dict = Depends(get_current_use
         "scope_summary": body.scope_summary or "",
         "items": items,
         "markup_percent": body.markup_percent,
+        "margin_percent": body.margin_percent,
         "discount_percent": body.discount_percent,
         "vat_percent": body.vat_percent,
         "status": body.status,
@@ -609,7 +732,7 @@ async def update_estimate(estimate_id: str, body: EstimateUpdateIn, user: dict =
             d["item_id"] = d.get("item_id") or str(uuid.uuid4())
             items.append(d)
         updates["items"] = items
-    for k in ["title", "scope_summary", "markup_percent", "discount_percent", "vat_percent", "status"]:
+    for k in ["title", "scope_summary", "markup_percent", "margin_percent", "discount_percent", "vat_percent", "status"]:
         if k in data:
             updates[k] = data[k]
     updates["updated_at"] = now_utc()

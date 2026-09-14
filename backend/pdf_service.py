@@ -99,34 +99,47 @@ def build_offer_pdf(estimate: dict, computed: dict, company: dict, client: dict,
         pdf.cell(w, 8, h, border=0, fill=True, align="C")
     pdf.ln(8)
 
+    markup_pct = float(estimate.get("markup_percent", 0) or 0)
+    margin_pct = float(estimate.get("margin_percent", 0) or 0)
+    discount_pct = float(estimate.get("discount_percent", 0) or 0)
+    vat_pct = float(estimate.get("vat_percent", 23) or 0)
+    # Narzut i marża są wliczone w ceny jednostkowe pokazywane klientowi (nieujawniane osobno).
+    factor = 1.0 + (markup_pct + margin_pct) / 100.0
+
     pdf.set_text_color(9, 9, 11)
     pdf.set_draw_color(212, 212, 216)
     pdf.set_line_width(0.2)
     items = estimate.get("items", [])
+    client_subtotal = 0.0
     for idx, it in enumerate(items, start=1):
-        line_total = float(it.get("quantity", 0)) * float(it.get("unit_price", 0))
+        qty = float(it.get("quantity", 0) or 0)
+        client_unit = round(float(it.get("unit_price", 0) or 0) * factor, 2)
+        line_total = round(qty * client_unit, 2)
+        client_subtotal += line_total
         name = it.get("name", "")
-        prefix = ""
         pdf.set_font("Plex", "", 8.5)
-        # measure name height
         y0 = pdf.get_y()
-        x0 = pdf.get_x()
         pdf.cell(widths[0], 6, str(idx), border="B", align="C")
-        # name may wrap
         x_name = pdf.get_x()
         pdf.multi_cell(widths[1], 6, name, border="B")
         y_after = pdf.get_y()
         row_h = y_after - y0
         pdf.set_xy(x_name + widths[1], y0)
-        pdf.cell(widths[2], row_h, _fmt(float(it.get("quantity", 0))), border="B", align="R")
+        pdf.cell(widths[2], row_h, _fmt(qty), border="B", align="R")
         pdf.cell(widths[3], row_h, it.get("unit", ""), border="B", align="C")
-        pdf.cell(widths[4], row_h, _fmt(float(it.get("unit_price", 0))), border="B", align="R")
+        pdf.cell(widths[4], row_h, _fmt(client_unit), border="B", align="R")
         pdf.cell(widths[5], row_h, _fmt(line_total), border="B", align="R")
         pdf.set_y(y0 + row_h)
 
     pdf.ln(4)
 
-    # Totals
+    client_subtotal = round(client_subtotal, 2)
+    discount_amount = round(client_subtotal * discount_pct / 100.0, 2)
+    net = round(client_subtotal - discount_amount, 2)
+    vat_amount = round(net * vat_pct / 100.0, 2)
+    gross = round(net + vat_amount, 2)
+
+    # Totals (client-facing only — bez narzutu, marży, zysku i kosztów zakupu)
     def total_row(label, value, bold=False, big=False):
         pdf.set_font("Plex", "B" if bold else "", 12 if big else 9.5)
         pdf.cell(122, 7, "", border=0)
@@ -134,19 +147,17 @@ def build_offer_pdf(estimate: dict, computed: dict, company: dict, client: dict,
         pdf.cell(30, 7, _fmt(value) + " zł", border=0, align="R")
         pdf.ln(7)
 
-    total_row("Wartość netto:", computed["subtotal"])
-    if computed["markup"] > 0:
-        total_row(f"Narzut ({estimate.get('markup_percent', 0)}%):", computed["markup"])
-    if computed["discount"] > 0:
-        total_row(f"Rabat ({estimate.get('discount_percent', 0)}%):", -computed["discount"])
-    total_row("Netto:", computed["net"], bold=True)
-    total_row(f"VAT ({estimate.get('vat_percent', 23)}%):", computed["vat"])
+    total_row("Wartość netto:", client_subtotal)
+    if discount_amount > 0:
+        total_row(f"Rabat ({discount_pct:g}%):", -discount_amount)
+    total_row("Netto:", net, bold=True)
+    total_row(f"VAT ({vat_pct:g}%):", vat_amount)
     pdf.set_draw_color(9, 9, 11)
     pdf.set_line_width(0.5)
     y = pdf.get_y()
     pdf.line(122, y, 200, y)
     pdf.ln(1)
-    total_row("DO ZAPŁATY (brutto):", computed["gross"], bold=True, big=True)
+    total_row("DO ZAPŁATY (brutto):", gross, bold=True, big=True)
 
     out = pdf.output()
     return bytes(out)

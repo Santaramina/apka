@@ -35,8 +35,20 @@ pomiary, pozycje, materiały, stawki robocizny, narzuty, rabaty, oferty, kosztor
   narzut/rabat/VAT/status, live totals, sticky footer, generowanie i udostępnianie PDF
 - Ekrany: Pulpit, Inwestycje, Klienci, Baza (tabs) + capture, estimate editor, formularze, ustawienia
 
-## Backlog / next
-- P1: moduł pomiarów (pomieszczenia/wymiary), analiza wideo (klatki)
-- P1: uczenie systemu — rzeczywiste koszty vs estymacja, prywatne normy użytkownika
-- P2: integracja z hurtownią (ceny materiałów online), wersjonowanie ofert, wielu użytkowników w firmie
-- P2: dopasowywanie pozycji AI do katalogu użytkownika (ceny z bazy zamiast estymacji AI)
+## Refactor rdzenia wyceny (2026-06)
+Zmienione pliki:
+- backend/ai_service.py — AI NIE podaje cen; zwraca kind/name/quantity/unit/confidence/note
+- backend/matching.py (NOWY) — dopasowanie nazw pozycji do katalogu (tokeny: Jaccard + zawieranie, próg 0.4)
+- backend/server.py — analiza w tle (BackgroundTasks) ze statusem analysis_status (processing/completed/failed); dopasowanie cen z katalogu (price_source catalog/user/null); compute_totals rozszerzony (materials_cost, labor_cost, extra_cost, markup, margin, discount, vat, net, gross, profit); margin_percent; walidacja uploadu (typy + limit 20MB); poprawka przekazywania branży (trade default None → fallback do project.trade); endpoint /estimates/{id}/reanalyze; pola pozycji quantity_source/price_source/confidence/catalog_id/catalog_name
+- backend/pdf_service.py — oferta dla klienta ukrywa narzut/marżę/zysk/koszt zakupu (wliczone w ceny jednostkowe), pokazuje tylko Wartość netto / Rabat / VAT / Brutto
+- frontend/app/capture.tsx — przekazuje branżę projektu do /ai/analyze
+- frontend/app/estimate/[id].tsx — ekrany statusu analizy (processing/failed+retry), odznaki źródeł (Ilość: AI/ręczna, Cena: katalog/ręczna/Brak w katalogu, AI %), modal „Dopasuj z katalogu" + „Wpisz cenę ręcznie", pole Marża, rozbicie kosztorysu wewnętrznego (materiały/robocizna/narzut/marża/rabat/netto/VAT/zysk)
+
+Testy: backend 17/17 (async analyze, matching, trade, reanalyze, totals, upload, PDF bez danych wewnętrznych, izolacja user_id), frontend wszystkie przepływy (edytor, odznaki, picker katalogu, zapis, ustawienia).
+
+Ceny snapshotowane w kosztorysie (zmiana ceny w katalogu nie zmienia historycznego kosztorysu).
+
+## Do zrobienia (kolejne):
+- Osobny wydruk PDF kosztorysu wewnętrznego (dla wykonawcy)
+- Cena zakupu materiału (koszt) obok ceny sprzedaży → dokładniejszy zysk
+- Uczenie na rzeczywistych kosztach; integracja z hurtownią
