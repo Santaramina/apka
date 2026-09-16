@@ -172,6 +172,7 @@ class EstimateItemIn(BaseModel):
     note: Optional[str] = ""
     source: str = "manual"
     quantity_source: str = "user"
+    quantity_basis: Optional[str] = None
     price_source: Optional[str] = None
     confidence: Optional[float] = None
     catalog_id: Optional[str] = None
@@ -765,6 +766,15 @@ async def run_analysis(estimate_id: str, user_id: str, description: str, image_p
                 requires_confirmation = bool(res.get("requires_confirmation"))
                 candidate_matches = res.get("candidate_matches", [])
 
+            # AI zgłosił brak istotnych danych -> wymaga potwierdzenia,
+            # ale TYLKO gdy cena nie została pewnie ustalona z katalogu
+            ai_needs = bool(it.get("needs_confirmation", False))
+            if ai_needs and price_source is None:
+                requires_confirmation = True
+
+            basis = it.get("quantity_basis", "estimated")
+            quantity_source = "ai_read" if basis == "read" else "ai_estimated"
+
             items.append(
                 {
                     "item_id": str(uuid.uuid4()),
@@ -775,7 +785,8 @@ async def run_analysis(estimate_id: str, user_id: str, description: str, image_p
                     "unit_price": round(price, 2),
                     "note": it.get("note", ""),
                     "source": "ai",
-                    "quantity_source": "ai",
+                    "quantity_source": quantity_source,
+                    "quantity_basis": basis,
                     "price_source": price_source,
                     "confidence": it.get("confidence"),
                     "catalog_id": catalog_id,

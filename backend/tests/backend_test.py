@@ -190,9 +190,11 @@ class TestAIAsync:
         # required fields
         for it in items:
             assert set(["kind", "name", "quantity", "unit", "unit_price",
-                        "price_source", "quantity_source", "confidence"]).issubset(it.keys())
-            assert it["quantity_source"] == "ai"
-            # price_source is either 'catalog' or None; NEVER 'ai'
+                        "price_source", "quantity_source", "quantity_basis", "confidence"]).issubset(it.keys())
+            # Refactored contract: quantity_source is 'ai_read' or 'ai_estimated' (mirrors basis)
+            assert it["quantity_source"] in ("ai_read", "ai_estimated"), it["quantity_source"]
+            assert it["quantity_basis"] in ("read", "estimated"), it["quantity_basis"]
+            # price_source is either 'catalog' or None; NEVER 'ai' (AI never invents prices)
             assert it["price_source"] in (None, "catalog", "user")
             # if unmatched -> price=0
             if it["price_source"] is None:

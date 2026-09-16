@@ -124,3 +124,21 @@ frontend:
 test_credentials: test@budkoszt.pl / test123
 agent_communication:
   - "Backend: 38 testów jednostkowych (voice_actions/matching/seed/upload) + backend_test.py = 55 passed. Prosze przetestowac nowe endpointy i przeplyw glosowy oraz priorytet ceny uzytkownika."
+
+## [2026-06] Audyt procesu kosztorysowania (AI + katalog + obliczenia + PDF)
+backend:
+  - task: "AI: rozróżnienie ilości odczytana/szacowana + needs_confirmation, brak wymyślania cen"
+    file: "/app/backend/ai_service.py, /app/backend/server.py"
+    status: implemented; needs_retesting: true
+    details: "Prompt wzmocniony (nie wymyślaj materiałów/ilości; quantity_basis read|estimated; needs_confirmation). run_analysis mapuje basis->quantity_source (ai_read/ai_estimated); ceny wyłącznie z katalogu (0 + requires_confirmation gdy brak pewnego dopasowania). ai needs_confirmation wymusza requires_confirmation TYLKO gdy cena nie z katalogu. Live-verified: opis elektryczny -> 10 pozycji, quantity_basis=read, ceny z katalogu lub 0+confirm."
+  - task: "Obliczenia: narzut/marża od subtotal (bez podwójnego naliczania), rabat po narzucie, VAT, zysk"
+    file: "/app/backend/server.py compute_totals"
+    status: verified; needs_retesting: false
+    details: "12 testów jednostkowych (test_totals.py) w tym 6 scenariuszy elektrycznych. Potwierdzone: markup i margin liczone od subtotal (nie kaskadowo), discount od before_discount, gross=net+vat, profit=net-subtotal."
+frontend:
+  - task: "Edytor: badge Ilość odczytana/szacowana/ręczna; edycja ilości/ceny/produktu; kandydaci; dodaj/usuń"
+    file: "/app/frontend/app/estimate/[id].tsx"
+    status: implemented; needs_retesting: true
+test_credentials: test@budkoszt.pl / test123
+agent_communication:
+  - "Backend 50/50 testow jednostkowych. Live E2E analyze OK. Prosze przetestowac: pelny przeplyw analyze->items(quantity_basis)->matching->edycja(ilosc/cena/kandydat/dodaj/usun)->compute totals->PDF. Nie zmieniac matching.py."

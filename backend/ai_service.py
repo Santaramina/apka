@@ -39,7 +39,14 @@ SYSTEM_MESSAGE = (
     "Jesteś doświadczonym kosztorysantem budowlano-instalacyjnym w Polsce. "
     "Analizujesz zdjęcia z budowy oraz opis głosowy/tekstowy i rozpoznajesz ZAKRES PRAC. "
     "Twoim zadaniem jest wypisać potrzebne materiały i robociznę wraz z ILOŚCIAMI i JEDNOSTKAMI. "
-    "NIE PODAJESZ CEN — ceny pochodzą z katalogu użytkownika, nie od Ciebie. "
+    "ZASADY BEZWZGLĘDNE: "
+    "1) NIE WYMYŚLAJ materiałów, prac ani ilości. Jeśli czegoś nie widać/nie powiedziano — nie dodawaj tego. "
+    "2) NIE PODAJESZ CEN — ceny pochodzą z katalogu użytkownika, nie od Ciebie. "
+    "3) Rozróżniaj podstawę ILOŚCI (quantity_basis): 'read' = ilość wprost odczytana/policzona ze zdjęcia lub podana w opisie; "
+    "'estimated' = ilość oszacowana, gdy nie ma pewnych danych. Dla 'estimated' obniż confidence. "
+    "4) Rozpoznawaj parametry techniczne i umieszczaj je w nazwie (przekrój np. 3x2,5; liczba żył; średnica fi/DN; moc W/kW; napięcie V; model). "
+    "5) Jeśli brakuje istotnych danych do jednoznacznego rozpoznania pozycji — ustaw \"needs_confirmation\": true. "
+    "6) Nie traktuj wysokiego confidence jako gwarancji — przy wątpliwościach obniżaj confidence i oznaczaj needs_confirmation. "
     "Zawsze odpowiadasz WYŁĄCZNIE poprawnym obiektem JSON, bez komentarzy, bez bloków markdown. "
     "Jednostki: m2, mb, szt, kpl, godz, m3, pkt. "
     "Rodzaje pozycji (kind): 'material' (materiał), 'labor' (robocizna), 'extra' (koszty dodatkowe)."
@@ -54,17 +61,20 @@ Zwróć obiekt JSON o strukturze:
   "items": [
     {
       "kind": "material | labor | extra",
-      "name": "precyzyjna nazwa materiału lub rodzaju pracy po polsku (np. 'przewód YDY 3x2,5', 'układanie płytek')",
+      "name": "precyzyjna nazwa materiału lub rodzaju pracy po polsku z parametrami (np. 'przewód YDY 3x2,5', 'oprawa LED 18W', 'układanie płytek')",
       "unit": "jednostka (m2, mb, szt, kpl, godz, m3, pkt)",
-      "quantity": liczba (szacunkowa ilość),
+      "quantity": liczba (ilość),
+      "quantity_basis": "read | estimated (read = odczytana/podana wprost; estimated = oszacowana)",
       "confidence": liczba 0.0-1.0 (jak pewny jesteś rozpoznania i ilości),
+      "needs_confirmation": true/false (true, gdy brak istotnych danych do jednoznacznego rozpoznania),
       "note": "krótka uwaga lub podstawa oszacowania ilości"
     }
   ]
 }
 NIE PODAWAJ pola z ceną. Podaj kompletną listę: materiały, robociznę i ewentualne koszty dodatkowe.
-Podawaj dokładne, konkretne nazwy materiałów (typ, przekrój, wymiar), aby dało się je dopasować do katalogu.
-Jeśli ilości nie da się ustalić ze zdjęć, oszacuj rozsądnie na podstawie opisu i obniż confidence.
+Podawaj dokładne, konkretne nazwy materiałów (typ, przekrój, wymiar, moc), aby dało się je dopasować do katalogu.
+Jeśli ilości nie da się ustalić — ustaw quantity_basis='estimated', obniż confidence i rozważ needs_confirmation=true.
+NIE dodawaj pozycji, których nie ma na zdjęciach ani w opisie.
 """
 
 
@@ -133,13 +143,18 @@ async def analyze_site(session_id, description, images, audio, trade):
             conf = float(conf) if conf is not None else None
             if conf is not None:
                 conf = max(0.0, min(1.0, conf))
+            basis = str(it.get("quantity_basis", "estimated")).strip().lower()
+            if basis not in ("read", "estimated"):
+                basis = "estimated"
             items.append(
                 {
                     "kind": it.get("kind", "material"),
                     "name": str(it.get("name", "")).strip() or "Pozycja",
                     "unit": str(it.get("unit", "szt")).strip() or "szt",
                     "quantity": float(it.get("quantity", 1) or 1),
+                    "quantity_basis": basis,
                     "confidence": conf,
+                    "needs_confirmation": bool(it.get("needs_confirmation", False)),
                     "note": str(it.get("note", "")).strip(),
                 }
             )

@@ -27,6 +27,7 @@ type Item = {
   note?: string;
   source?: string;
   quantity_source?: string;
+  quantity_basis?: string | null;
   price_source?: string | null;
   confidence?: number | null;
   catalog_id?: string | null;
@@ -182,6 +183,7 @@ export default function EstimateEditor() {
       note: it.note || "",
       source: it.source || "manual",
       quantity_source: it.quantity_source || "user",
+      quantity_basis: it.quantity_basis ?? null,
       price_source: it.price_source ?? null,
       confidence: it.confidence ?? null,
       catalog_id: it.catalog_id ?? null,
@@ -310,8 +312,8 @@ export default function EstimateEditor() {
 
               {/* source badges */}
               <View style={styles.badgeRow}>
-                <View style={[styles.srcBadge, { backgroundColor: it.quantity_source === "ai" ? colors.brandTertiary : colors.surfaceTertiary }]}>
-                  <Text style={styles.srcBadgeText}>{it.quantity_source === "ai" ? "Ilość: AI (szac.)" : "Ilość: ręczna"}</Text>
+                <View style={[styles.srcBadge, { backgroundColor: it.quantity_source === "ai_estimated" ? "#FEF3C7" : it.quantity_source === "ai_read" ? "#DBEAFE" : colors.surfaceTertiary }]}>
+                  <Text style={styles.srcBadgeText}>{it.quantity_source === "ai_estimated" ? "Ilość: szacowana" : it.quantity_source === "ai_read" ? "Ilość: odczytana" : "Ilość: ręczna"}</Text>
                 </View>
                 <View style={[styles.srcBadge, { backgroundColor: it.price_source === "catalog" ? "#DCFCE7" : it.requires_confirmation ? "#FEF3C7" : it.price_source === "user" ? colors.surfaceTertiary : "#FEE2E2" }]}>
                   <Text style={styles.srcBadgeText}>{it.price_source === "catalog" ? "Cena: katalog" : it.requires_confirmation ? "Wymaga potwierdzenia" : it.price_source === "user" ? "Cena: ręczna" : "Brak w katalogu"}</Text>

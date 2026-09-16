@@ -1,0 +1,42 @@
+{
+  "summary": "Full audit of the BudKoszt Pro estimate creation pipeline — ALL GREEN. Backend: 103/103 pytest pass in 149.89s across 6 suites (backend_test.py 17, test_catalog_voice.py 17, test_catalog_voice_api.py 19, test_matching.py 10, test_totals.py 12, test_upload.py 11, plus 17 NEW in test_estimate_pipeline.py). New suite covers every review-request assertion via LIVE Gemini + external EXPO_BACKEND_URL. (1) POST /api/ai/analyze with the exact Polish electrical description ('12 gniazd podwójnych, 6 włączników, 120 mb YDY 3x2,5, rozdzielnica 12-mod, 8 opraw LED, malowanie pomijamy') returned analysis_status=processing in <10s (true async, 0.09s), then polled to completed with 8-14 items. Every item carried quantity_basis ∈ {read, estimated} AND quantity_source mirroring exactly ai_read/ai_estimated per basis (test_every_item_has_quantity_basis_and_source). (2) AI-never-invents-prices contract verified programmatically item-by-item: price_source ∈ {catalog, null, user} — never 'ai'; catalog matches always carry unit_price>0 AND catalog_id; null-source items always have unit_price=0.0 AND (requires_confirmation=True OR non-empty candidate_matches). (3) AI-never-invents-items: description says 'malowanie pomijamy' → asserted no item name contained {malowan, gładz, farba, tapetow} — passed on the live Gemini response. (4) Matching safety: any item with '3x2,5' in AI name → its catalog_name does NOT contain '3x1,5' AND every candidate_match for that item excludes 3x1,5 (upheld live via matching.py's hard-conflict rule in _spec_state). (5) Generic 'Oprawa LED' (no wattage) → if auto-matched, the matched catalog_name also has no wattage; specific 18W/24W entries are not auto-picked. (6) Totals math via PUT /api/estimates/{id} with items 200+500+100=800, markup=10, margin=5, discount=5, vat=23: got subtotal=800, markup=80, margin=40, before=920, discount=46, net=874, vat=201.02, gross=1075.02, profit=74 — matches non-compounded formula exactly (subtotal*markup% + subtotal*margin%, NOT cascaded); explicit assert |net - 924.0| > 1.0 (924 = compounded 800*1.10*1.05) rejects double-counting. (7) Editing CRUD via PUT: qty 12.5 + price 22.5 + price_source='user' persist; TEST_Manualna_pozycja added then deleted (roundtrip via GET verified); replacing item[0] with a live catalog material_id+price sets price_source='catalog' and unit_price==catalog price. (8) PDF: GET /api/estimates/{id}/pdf?token=... returns HTTP 200, content-type application/pdf, %PDF- header, >500 bytes; pypdf text extraction confirms 'Wartość netto' + 'DO ZAPŁATY' present AND 'Narzut', 'Marża', 'Marza', 'Zysk', 'Koszt zakupu' all absent. (9) Regression: login returns {token,user}; GET /api/materials 132 + /api/labor-rates 58; /api/voice/parse-command context=catalog + context=estimate both 200 with actions[] present. Frontend UI on estimate/8a8aa437 (mobile 390x844): item cards render, badges render correctly (Ilość: ręczna 28, Cena: katalog 6, Wymaga potwierdzenia 14, Brak w katalogu 8), 7 requires_confirmation panels with title 'Nie znaleziono pewnego dopasowania — wybierz pozycję:' and 13 candidate rows testID='item-candidate-{idx}-{catalog_id}'. Tapping first candidate flipped badge to 'Cena: katalog' (count 6→8) AND DO ZAPŁATY recomputed live 756,06 zł → 1 080,78 zł. Qty +/- on item-0 goes 60→61→60. 'Dodaj pozycję' appends. Toggle-settings opens; changing Narzut% 10→20 recomputed gross 1 080,78 → 1 179,03 zł live. Screenshot at /tmp/estimate_ui.png shows working editor. Deprecated packages detected: none. SafeAreaView issues detected: none. React Native issues: none.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_estimate_pipeline.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_totals.py",
+    "/app/backend/tests/test_matching.py",
+    "/app/backend/tests/test_catalog_voice.py",
+    "/app/backend/tests/test_catalog_voice_api.py",
+    "/app/backend/tests/test_upload.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: replace FastAPI on_event('startup'/'shutdown') with lifespan handlers (deprecation warnings in pytest logs, no functional impact)."
+  ],
+  "critical_code_review_comments": [
+    "server.compute_totals correctly separates markup + margin (both from subtotal, additive not multiplicative) and applies discount to before_discount — matches the required no-double-counting invariant end-to-end.",
+    "server.run_analysis maps ai basis→quantity_source deterministically (ai_read/ai_estimated) and refuses to inherit AI prices — price_source stays null unless catalog match; ai_needs raises requires_confirmation only when catalog didn't confirm. Correct.",
+    "matching.match_catalog's hard-conflict param rule (_spec_state) prevents 3x2,5→3x1,5 confusion both in auto-match and in the candidate list; live Gemini output on the review-description confirms this.",
+    "pdf_service.build_offer_pdf uses only client-facing totals (Wartość netto, Rabat, Netto, VAT, DO ZAPŁATY) and internal cost prices are hidden by folding markup+margin into the unit price — verified by pypdf text extraction.",
+    "Fixed stale assertion in tests/backend_test.py::test_analyze_completes_with_items (expected legacy 'ai' quantity_source; updated to current 'ai_read'|'ai_estimated' contract and added quantity_basis check)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_estimate_pipeline.py (NEW — 17 tests)",
+    "/app/backend/tests/backend_test.py (fixed stale quantity_source assertion)",
+    "/app/test_reports/iteration_6.json",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "success_rate": {"backend": "100% (103/103 pytest)", "frontend": "100% (editor UI: badges, candidate apply, qty +/-, add item, markup live recompute, PDF/ZAPISZ buttons)"},
+  "seed_data_creation": "Live test spawned one fresh AI estimate under the test@budkoszt.pl account for pipeline verification (auto-cleaned by mutating same estimate through CRUD tests). No manual seed rows.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: cd /app/backend && pytest tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml (10 warnings, all deprecated on_event, ignorable). New authoritative suite is tests/test_estimate_pipeline.py — 17 tests, ~42s serial (uses live Gemini). It reuses the first existing project from GET /api/projects so no seed is needed. Canonical frontend fixture: /estimate/8a8aa437-df9c-4183-a149-45261964afaf still has requires_confirmation + candidate_matches items ideal for UI runs without spending LLM budget.",
+  "rca_of_issue": "N/A — no live bugs. The only regression finding was a stale test assertion (backend_test.py expected quantity_source=='ai') which had not caught up with the current 'ai_read'/'ai_estimated' contract; corrected in-place."
+}

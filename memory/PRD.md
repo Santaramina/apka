@@ -83,3 +83,10 @@ Zmienione pliki: backend/matching.py (przepisany), backend/server.py (integracja
 - UI: ekran Katalogu (wyszukiwarka nazwa/producent/SKU/parametr, filtr branża + kategoria, badge "przykładowa", mic "GŁOSEM"), formularz (branża/kategoria/producent/SKU/parametry), edytor wyceny (mic obok "POZYCJE").
 - Pliki: backend/seed_data.py, backend/voice_actions.py, backend/ai_service.py, backend/server.py; frontend/src/lib/catalog.ts, frontend/src/components/voice.tsx, frontend/app/(tabs)/catalog.tsx, frontend/app/catalog-form.tsx, frontend/app/estimate/[id].tsx.
 - Testy: backend 74/74 (test_catalog_voice.py 21 + test_matching + test_upload + backend_test.py + test_catalog_voice_api.py 19 live). Frontend: przepływ głosowy katalogu zweryfikowany wizualnie (parse+potwierdzenie).
+
+## Audyt procesu kosztorysowania (2026-06)
+- AI: rozróżnienie ilości read/estimated (quantity_basis) + needs_confirmation; wzmocniony prompt (zakaz wymyślania pozycji/ilości/cen, wymóg parametrów technicznych). run_analysis: quantity_source=ai_read|ai_estimated; ceny wyłącznie z katalogu (0 + requires_confirmation gdy brak pewnego dopasowania); needs_confirmation z AI wymusza potwierdzenie tylko gdy cena nie z katalogu.
+- Obliczenia (compute_totals): potwierdzone testami — narzut i marża liczone od subtotal (NIE kaskadowo/podwójnie), rabat od (subtotal+narzut+marża), net=before-rabat, vat=net*vat%, gross=net+vat, profit=net-subtotal. 12 testów (test_totals.py) w tym 6 elektrycznych.
+- Frontend edytor: badge Ilość odczytana/szacowana/ręczna; edycja ilości/ceny/produktu, kandydaci, dodaj/usuń; ustawienia narzut/marża/rabat/VAT przeliczają sumy live.
+- PDF: nie ujawnia narzutu/marży/zysku/kosztu zakupu (zweryfikowane).
+- Testy: backend 103/103 (test_totals + test_estimate_pipeline 17 live + matching + voice + upload + backend_test). Frontend editor E2E OK.
