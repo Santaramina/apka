@@ -74,3 +74,12 @@ Zmienione pliki: backend/matching.py (przepisany), backend/server.py (integracja
 - Komunikaty: pokazujemy tylko znane błędy backendu (PL); surowe błędy techniczne → "Nie udało się przesłać zdjęcia N. Spróbuj ponownie." Diagnostyka (status/body/mime/name/uri) tylko w console.warn.
 - Wersje: expo 57.0.19, expo-file-system ~57.0.7, react-native 0.86.3.
 - Testy: pytest 20/20; tsc/lint czyste; web bundle OK. Natywny upload wymaga testu w Expo Go / buildzie na iOS (web preview używa gałęzi web).
+
+## Rozbudowa katalogu wycen + edycja głosem (2026-06)
+- Branże (15): elektryka, teletechnika, sieci_lan, cctv, alarmy, kontrola_dostepu, domofony, automatyka, pv, hydraulika, kanalizacja, co, hvac, gaz, ogolnobudowlana (+legacy wykonczenia). Struktura Branża→Kategoria(subcategory)→Pozycja.
+- Baza przykładowa: 132 materiały / 58 robocizna (elektryka najobszerniejsza). Wszystkie ceny `price_is_example=True` ("przykładowa"). Materiały: manufacturer/sku/specs.
+- Priorytet ceny użytkownika: create/update ustawia price_is_example=False; seed dosypuje TYLKO brakujące pozycje (po seed_key), nigdy nie nadpisuje cen usera. Migracja starych dokumentów (trade=category). Top-up także przy loginie.
+- Edycja głosem: POST /api/voice/parse-command (context catalog|estimate, audio_path lub text; Whisper/Gemini via Emergent key) -> transkrypcja + akcje (set_price, bump_prices, add_item, delete_item, set_qty) z labelami/statusem/kandydatami. Zapis dopiero PO potwierdzeniu: /api/catalog/voice-apply (katalog) lub lokalnie w edytorze wyceny -> save (kosztorys). AI nie wymyśla cen (new_price tylko gdy user poda kwotę).
+- UI: ekran Katalogu (wyszukiwarka nazwa/producent/SKU/parametr, filtr branża + kategoria, badge "przykładowa", mic "GŁOSEM"), formularz (branża/kategoria/producent/SKU/parametry), edytor wyceny (mic obok "POZYCJE").
+- Pliki: backend/seed_data.py, backend/voice_actions.py, backend/ai_service.py, backend/server.py; frontend/src/lib/catalog.ts, frontend/src/components/voice.tsx, frontend/app/(tabs)/catalog.tsx, frontend/app/catalog-form.tsx, frontend/app/estimate/[id].tsx.
+- Testy: backend 74/74 (test_catalog_voice.py 21 + test_matching + test_upload + backend_test.py + test_catalog_voice_api.py 19 live). Frontend: przepływ głosowy katalogu zweryfikowany wizualnie (parse+potwierdzenie).

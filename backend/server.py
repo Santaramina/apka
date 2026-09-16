@@ -20,7 +20,9 @@ import ai_service
 import image_utils
 import matching
 import pdf_service
+import seed_data
 import storage_service
+import voice_actions
 from db import db, now_utc
 from seed_data import seed_user_catalog
 from security import create_jwt, get_current_user, hash_password, user_from_token, verify_password
@@ -141,16 +143,23 @@ class ProjectIn(BaseModel):
 
 class MaterialIn(BaseModel):
     name: str
-    category: str = "ogolnobudowlana"
+    trade: str = "ogolnobudowlana"
+    subcategory: str = ""
     unit: str = "szt"
     unit_price: float = 0
+    manufacturer: str = ""
+    sku: str = ""
+    specs: str = ""
+    category: Optional[str] = None  # legacy
 
 
 class LaborIn(BaseModel):
     name: str
-    category: str = "ogolnobudowlana"
+    trade: str = "ogolnobudowlana"
+    subcategory: str = ""
     unit: str = "godz"
     rate: float = 0
+    category: Optional[str] = None  # legacy
 
 
 class EstimateItemIn(BaseModel):
@@ -238,6 +247,7 @@ async def login(body: LoginIn):
     user = await db.users.find_one({"email": email}, {"_id": 0})
     if not user or not user.get("password_hash") or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Nieprawidłowy e-mail lub hasło")
+    await _finalize_user(user)
     token = create_jwt(user["user_id"])
     return {"token": token, "user": public_user(user)}
 
@@ -404,16 +414,45 @@ async def list_materials(user: dict = Depends(get_current_user)):
 
 @api.post("/materials")
 async def create_material(body: MaterialIn, user: dict = Depends(get_current_user)):
-    doc = body.model_dump()
-    doc.update({"material_id": str(uuid.uuid4()), "user_id": user["user_id"], "created_at": now_utc(), "deleted_at": None})
+    trade = body.trade or body.category or "ogolnobudowlana"
+    doc = {
+        "material_id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "name": body.name,
+        "trade": trade,
+        "category": trade,
+        "subcategory": body.subcategory or "",
+        "unit": body.unit,
+        "unit_price": body.unit_price,
+        "manufacturer": body.manufacturer or "",
+        "sku": body.sku or "",
+        "specs": body.specs or "",
+        "price_is_example": False,
+        "seed_key": seed_data._mat_key(trade, body.name),
+        "created_at": now_utc(),
+        "deleted_at": None,
+    }
     await db.materials.insert_one(doc)
     return {k: v for k, v in doc.items() if k != "_id"}
 
 
 @api.put("/materials/{material_id}")
 async def update_material(material_id: str, body: MaterialIn, user: dict = Depends(get_current_user)):
+    trade = body.trade or body.category or "ogolnobudowlana"
+    updates = {
+        "name": body.name,
+        "trade": trade,
+        "category": trade,
+        "subcategory": body.subcategory or "",
+        "unit": body.unit,
+        "unit_price": body.unit_price,
+        "manufacturer": body.manufacturer or "",
+        "sku": body.sku or "",
+        "specs": body.specs or "",
+        "price_is_example": False,  # użytkownik zatwierdził/ustawił cenę
+    }
     res = await db.materials.update_one(
-        {"material_id": material_id, "user_id": user["user_id"], "deleted_at": None}, {"$set": body.model_dump()}
+        {"material_id": material_id, "user_id": user["user_id"], "deleted_at": None}, {"$set": updates}
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Nie znaleziono materiału")
@@ -434,16 +473,39 @@ async def list_labor(user: dict = Depends(get_current_user)):
 
 @api.post("/labor-rates")
 async def create_labor(body: LaborIn, user: dict = Depends(get_current_user)):
-    doc = body.model_dump()
-    doc.update({"labor_id": str(uuid.uuid4()), "user_id": user["user_id"], "created_at": now_utc(), "deleted_at": None})
+    trade = body.trade or body.category or "ogolnobudowlana"
+    doc = {
+        "labor_id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "name": body.name,
+        "trade": trade,
+        "category": trade,
+        "subcategory": body.subcategory or "",
+        "unit": body.unit,
+        "rate": body.rate,
+        "price_is_example": False,
+        "seed_key": seed_data._lab_key(trade, body.name),
+        "created_at": now_utc(),
+        "deleted_at": None,
+    }
     await db.labor_rates.insert_one(doc)
     return {k: v for k, v in doc.items() if k != "_id"}
 
 
 @api.put("/labor-rates/{labor_id}")
 async def update_labor(labor_id: str, body: LaborIn, user: dict = Depends(get_current_user)):
+    trade = body.trade or body.category or "ogolnobudowlana"
+    updates = {
+        "name": body.name,
+        "trade": trade,
+        "category": trade,
+        "subcategory": body.subcategory or "",
+        "unit": body.unit,
+        "rate": body.rate,
+        "price_is_example": False,
+    }
     res = await db.labor_rates.update_one(
-        {"labor_id": labor_id, "user_id": user["user_id"], "deleted_at": None}, {"$set": body.model_dump()}
+        {"labor_id": labor_id, "user_id": user["user_id"], "deleted_at": None}, {"$set": updates}
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Nie znaleziono stawki")
@@ -454,6 +516,130 @@ async def update_labor(labor_id: str, body: LaborIn, user: dict = Depends(get_cu
 async def delete_labor(labor_id: str, user: dict = Depends(get_current_user)):
     await db.labor_rates.update_one({"labor_id": labor_id, "user_id": user["user_id"]}, {"$set": {"deleted_at": now_utc()}})
     return {"ok": True}
+
+
+# ----------------------------- Edycja głosem (katalog + kosztorys) -----------------------------
+class VoiceParseIn(BaseModel):
+    context: str = "catalog"  # catalog | estimate
+    text: Optional[str] = None
+    audio_path: Optional[str] = None
+    estimate_items: Optional[List[dict]] = None
+
+
+class VoiceApplyIn(BaseModel):
+    actions: List[dict] = []
+
+
+async def _catalog_pools(user_id: str):
+    materials = await db.materials.find({"user_id": user_id, "deleted_at": None}, {"_id": 0}).to_list(3000)
+    labor = await db.labor_rates.find({"user_id": user_id, "deleted_at": None}, {"_id": 0}).to_list(3000)
+    mat_pool = [{"id": m["material_id"], "name": m.get("name", ""), "unit": m.get("unit", ""), "price": float(m.get("unit_price", 0) or 0)} for m in materials]
+    lab_pool = [{"id": l["labor_id"], "name": l.get("name", ""), "unit": l.get("unit", ""), "price": float(l.get("rate", 0) or 0)} for l in labor]
+    return mat_pool, lab_pool
+
+
+@api.post("/voice/parse-command")
+async def voice_parse(body: VoiceParseIn, user: dict = Depends(get_current_user)):
+    if not body.text and not body.audio_path:
+        raise HTTPException(status_code=400, detail="Podaj polecenie głosowe lub tekstowe")
+
+    audio = None
+    if body.audio_path:
+        cap = await db.captures.find_one({"storage_path": body.audio_path, "user_id": user["user_id"]})
+        if not cap:
+            raise HTTPException(status_code=404, detail="Nie znaleziono nagrania")
+        content, ctype = await run_in_threadpool(storage_service.get_object, body.audio_path)
+        audio = (content, ctype)
+
+    try:
+        parsed = await ai_service.parse_voice_command(text=body.text, audio=audio, context=body.context)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("voice parse failed")
+        raise HTTPException(status_code=502, detail=f"Nie udało się rozpoznać polecenia: {str(e)[:120]}")
+
+    actions = parsed.get("actions", [])
+    if body.context == "estimate":
+        items = body.estimate_items or []
+        resolved = [voice_actions.resolve_estimate_action(a, items) for a in actions]
+    else:
+        mat_pool, lab_pool = await _catalog_pools(user["user_id"])
+        resolved = [voice_actions.resolve_catalog_action(a, mat_pool, lab_pool) for a in actions]
+
+    return {"transcription": parsed.get("transcription", ""), "actions": resolved}
+
+
+@api.post("/catalog/voice-apply")
+async def catalog_voice_apply(body: VoiceApplyIn, user: dict = Depends(get_current_user)):
+    uid = user["user_id"]
+    applied = []
+    for a in body.actions:
+        op = a.get("op")
+        kind = (a.get("item_kind") or "material").lower()
+        try:
+            if op == "set_price":
+                cid = a.get("catalog_id")
+                price = float(a.get("new_price") or 0)
+                if not cid:
+                    continue
+                if kind == "labor":
+                    await db.labor_rates.update_one({"labor_id": cid, "user_id": uid}, {"$set": {"rate": round(price, 2), "price_is_example": False}})
+                else:
+                    await db.materials.update_one({"material_id": cid, "user_id": uid}, {"$set": {"unit_price": round(price, 2), "price_is_example": False}})
+                applied.append(a.get("label", "Zmieniono cenę"))
+
+            elif op == "delete_item":
+                cid = a.get("catalog_id")
+                if not cid:
+                    continue
+                coll = db.labor_rates if kind == "labor" else db.materials
+                key = "labor_id" if kind == "labor" else "material_id"
+                await coll.update_one({key: cid, "user_id": uid}, {"$set": {"deleted_at": now_utc()}})
+                applied.append(a.get("label", "Usunięto pozycję"))
+
+            elif op == "bump_prices":
+                pct = float(a.get("percent") or 0)
+                factor = 1.0 + pct / 100.0
+                trade = a.get("trade") or ""
+                targets = []
+                if kind in ("material", "all"):
+                    targets.append((db.materials, "unit_price"))
+                if kind in ("labor", "all"):
+                    targets.append((db.labor_rates, "rate"))
+                for coll, field in targets:
+                    q = {"user_id": uid, "deleted_at": None}
+                    if trade:
+                        q["trade"] = trade
+                    async for doc in coll.find(q):
+                        new_val = round(float(doc.get(field, 0) or 0) * factor, 2)
+                        await coll.update_one({"_id": doc["_id"]}, {"$set": {field: new_val, "price_is_example": False}})
+                applied.append(a.get("label", "Zmieniono ceny"))
+
+            elif op == "add_item":
+                trade = a.get("trade") or "ogolnobudowlana"
+                name = a.get("name") or "Nowa pozycja"
+                unit = a.get("unit") or ("godz" if kind == "labor" else "szt")
+                price = float(a.get("price") or 0)
+                if kind == "labor":
+                    await db.labor_rates.insert_one({
+                        "labor_id": str(uuid.uuid4()), "user_id": uid, "name": name, "trade": trade,
+                        "category": trade, "subcategory": "", "unit": unit, "rate": round(price, 2),
+                        "price_is_example": False, "seed_key": seed_data._lab_key(trade, name),
+                        "created_at": now_utc(), "deleted_at": None,
+                    })
+                else:
+                    await db.materials.insert_one({
+                        "material_id": str(uuid.uuid4()), "user_id": uid, "name": name, "trade": trade,
+                        "category": trade, "subcategory": "", "unit": unit, "unit_price": round(price, 2),
+                        "manufacturer": "", "sku": "", "specs": "", "price_is_example": False,
+                        "seed_key": seed_data._mat_key(trade, name), "created_at": now_utc(), "deleted_at": None,
+                    })
+                applied.append(a.get("label", "Dodano pozycję"))
+        except Exception:  # noqa: BLE001
+            logger.exception("voice apply action failed: %s", op)
+            continue
+
+    return {"applied": applied, "count": len(applied)}
+
 
 
 # ----------------------------- Uploads / Files -----------------------------

@@ -101,3 +101,26 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+## [2026-06] Rozbudowa katalogu wycen + edycja głosem
+backend:
+  - task: "Rozszerzony katalog (branża/kategoria/producent/SKU/parametry, ceny przykładowe, migracja+top-up)"
+    file: "/app/backend/seed_data.py, /app/backend/server.py"
+    status: implemented; needs_retesting: true
+    details: "GET/POST/PUT/DELETE /materials i /labor-rates rozszerzone o trade, subcategory, manufacturer, sku, specs, price_is_example. Seed dosypuje brakujące pozycje przykładowe (po seed_key) bez nadpisywania cen użytkownika; migracja starych dokumentów (trade=category). Login też wywołuje top-up. Po edycji przez użytkownika price_is_example=false."
+  - task: "Parser komend głosowych + zastosowanie (katalog)"
+    file: "/app/backend/ai_service.py, /app/backend/voice_actions.py, /app/backend/server.py"
+    status: implemented; needs_retesting: true
+    details: "POST /voice/parse-command (context catalog|estimate; audio_path lub text) zwraca transkrypcję + akcje z labelami/statusami/kandydatami. POST /catalog/voice-apply wykonuje potwierdzone akcje (set_price, bump_prices, add_item, delete_item). Nie wymyśla cen. Zweryfikowane live: set_price YDY 3x2,5->8zł, bump elektryka labor +10%."
+frontend:
+  - task: "Ekran katalogu: wyszukiwarka + filtr branża/kategoria + badge przykładowa + głos"
+    file: "/app/frontend/app/(tabs)/catalog.tsx, /app/frontend/src/components/voice.tsx, /app/frontend/src/lib/catalog.ts"
+    status: implemented; needs_retesting: true
+  - task: "Formularz katalogu: branża/kategoria/producent/SKU/parametry"
+    file: "/app/frontend/app/catalog-form.tsx"
+    status: implemented; needs_retesting: true
+  - task: "Edycja głosem w edytorze wyceny (dodaj/zmień cenę/ilość/usuń/zbiorczo %) z potwierdzeniem"
+    file: "/app/frontend/app/estimate/[id].tsx, /app/frontend/src/components/voice.tsx"
+    status: implemented; needs_retesting: true
+test_credentials: test@budkoszt.pl / test123
+agent_communication:
+  - "Backend: 38 testów jednostkowych (voice_actions/matching/seed/upload) + backend_test.py = 55 passed. Prosze przetestowac nowe endpointy i przeplyw glosowy oraz priorytet ceny uzytkownika."

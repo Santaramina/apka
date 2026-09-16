@@ -16,11 +16,24 @@ GEMINI_MODEL = "gemini-3.1-pro-preview"
 
 TRADE_LABELS = {
     "elektryka": "instalacje elektryczne",
+    "teletechnika": "instalacje teletechniczne (RTV-SAT, audio)",
+    "sieci_lan": "sieci komputerowe / LAN",
+    "cctv": "monitoring CCTV",
+    "alarmy": "systemy alarmowe",
+    "kontrola_dostepu": "kontrola dostępu",
+    "domofony": "domofony i wideodomofony",
+    "automatyka": "automatyka budynkowa / smart home",
+    "pv": "fotowoltaika (PV)",
     "hydraulika": "instalacje sanitarne / hydraulika",
+    "kanalizacja": "instalacje kanalizacyjne",
+    "co": "centralne ogrzewanie",
+    "hvac": "wentylacja i klimatyzacja (HVAC)",
+    "gaz": "instalacje gazowe",
     "wykonczenia": "prace wykończeniowe (płytki, malowanie, gładzie, panele)",
     "ogolnobudowlana": "prace ogólnobudowlane",
     "mieszane": "prace mieszane budowlano-instalacyjne",
 }
+TRADE_KEYS = list(TRADE_LABELS.keys())
 
 SYSTEM_MESSAGE = (
     "Jesteś doświadczonym kosztorysantem budowlano-instalacyjnym w Polsce. "
@@ -137,4 +150,113 @@ async def analyze_site(session_id, description, images, audio, trade):
         "rooms": data.get("rooms", []) or [],
         "transcription": str(data.get("transcription", "")).strip(),
         "items": items,
+    }
+
+
+
+# ============================ EDYCJA GŁOSEM ============================
+VOICE_SYSTEM = (
+    "Jesteś asystentem kosztorysanta budowlano-instalacyjnego w Polsce. "
+    "Zamieniasz polecenie głosowe lub tekstowe wykonawcy na USTRUKTURYZOWANE AKCJE (JSON). "
+    "NIE wykonujesz akcji — tylko je proponujesz do potwierdzenia. "
+    "NIE wymyślasz cen: cenę podajesz TYLKO, jeśli użytkownik wyraźnie ją wypowiedział. "
+    "Odpowiadasz WYŁĄCZNIE poprawnym obiektem JSON, bez markdown, bez komentarzy."
+)
+
+_VOICE_SPEC_CATALOG = """
+Kontekst: KATALOG cen użytkownika (materiały i robocizna).
+Zwróć JSON:
+{
+  "transcription": "dokładna transkrypcja polecenia po polsku (jeśli było audio, inaczej powtórz tekst)",
+  "actions": [
+    // Zmiana ceny konkretnej pozycji:
+    {"op":"set_price","item_kind":"material|labor","query":"nazwa/fraza szukanej pozycji, np. 'YDY 3x2,5'","unit":"opcjonalna jednostka np. m","new_price": liczba},
+    // Zbiorcza zmiana procentowa (np. 'podnieś robociznę w elektryce o 10%'):
+    {"op":"bump_prices","item_kind":"material|labor|all","trade":"klucz branży lub pusty","percent": liczba_dodatnia_lub_ujemna},
+    // Dodanie nowej pozycji do katalogu:
+    {"op":"add_item","item_kind":"material|labor","name":"nazwa","unit":"jednostka","price": liczba_lub_null,"trade":"klucz branży lub pusty"},
+    // Usunięcie pozycji z katalogu:
+    {"op":"delete_item","item_kind":"material|labor","query":"nazwa/fraza"}
+  ]
+}
+"""
+
+_VOICE_SPEC_ESTIMATE = """
+Kontekst: KOSZTORYS (bieżąca lista pozycji wyceny).
+Zwróć JSON:
+{
+  "transcription": "dokładna transkrypcja polecenia po polsku (jeśli było audio, inaczej powtórz tekst)",
+  "actions": [
+    // Dodanie pozycji do kosztorysu (np. 'dodaj 20 punktów elektrycznych po 85 zł'):
+    {"op":"add_item","item_kind":"material|labor|extra","name":"nazwa","unit":"jednostka","quantity": liczba,"price": liczba_lub_null},
+    // Zmiana ceny jednostkowej istniejącej pozycji:
+    {"op":"set_price","query":"nazwa/fraza pozycji","new_price": liczba},
+    // Zmiana ilości istniejącej pozycji:
+    {"op":"set_qty","query":"nazwa/fraza pozycji","quantity": liczba},
+    // Zbiorcza zmiana cen o procent:
+    {"op":"bump_prices","item_kind":"material|labor|all","percent": liczba},
+    // Usunięcie pozycji z kosztorysu:
+    {"op":"delete_item","query":"nazwa/fraza pozycji lub 'ostatnia'/'ta'"}
+  ]
+}
+"""
+
+
+async def parse_voice_command(text=None, audio=None, context="catalog", extra_context=""):
+    """Zamienia polecenie (audio lub tekst) na listę proponowanych akcji.
+
+    Zwraca: {"transcription": str, "actions": [dict, ...]}
+    NIE zapisuje żadnych zmian.
+    """
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=f"voice_{context}",
+        system_message=VOICE_SYSTEM,
+    ).with_model("gemini", GEMINI_MODEL)
+
+    file_contents = []
+    tmp_paths = []
+    if audio is not None:
+        audio_bytes, audio_mime = audio
+        suffix = ".m4a"
+        if "mp3" in (audio_mime or ""):
+            suffix = ".mp3"
+        elif "wav" in (audio_mime or ""):
+            suffix = ".wav"
+        fd, path = tempfile.mkstemp(suffix=suffix)
+        with os.fdopen(fd, "wb") as f:
+            f.write(audio_bytes)
+        tmp_paths.append(path)
+        file_contents.append(FileContentWithMimeType(file_path=path, mime_type=audio_mime or "audio/m4a"))
+
+    spec = _VOICE_SPEC_ESTIMATE if context == "estimate" else _VOICE_SPEC_CATALOG
+    parts = [
+        "Dostępne klucze branż (trade): " + ", ".join(TRADE_KEYS) + ".",
+    ]
+    if extra_context:
+        parts.append(extra_context)
+    if audio is not None:
+        parts.append("Najpierw przepisz nagranie głosowe, potem zbuduj akcje.")
+    if text:
+        parts.append(f"Polecenie tekstowe: {text}")
+    parts.append(spec)
+    prompt = "\n\n".join(parts)
+
+    try:
+        response = await chat.send_message(UserMessage(text=prompt, file_contents=file_contents))
+    finally:
+        for p in tmp_paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+    data = _extract_json(response)
+    actions = []
+    for a in data.get("actions", []):
+        if isinstance(a, dict) and a.get("op"):
+            actions.append(a)
+    return {
+        "transcription": str(data.get("transcription", "")).strip(),
+        "actions": actions,
     }

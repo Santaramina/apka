@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { apiFetch, fileUrl, pdfUrl } from "@/src/api/client";
 import { Loading, Money, ScreenHeader, haptic } from "@/src/components/ui";
+import { VoiceEditButton } from "@/src/components/voice";
 import { useToast } from "@/src/components/toast";
 import { KINDS, UNITS, num, pln, statusLabel } from "@/src/lib/format";
 import { fonts } from "@/src/lib/fonts";
@@ -104,6 +105,40 @@ export default function EstimateEditor() {
   const addItem = () => {
     haptic("medium");
     setItems((arr) => [...arr, { item_id: `new_${tmpId++}`, kind: "material", name: "", unit: "szt", quantity: "1", unit_price: "0", source: "manual", quantity_source: "user", price_source: "user", confidence: null, catalog_id: null, catalog_name: null }]);
+  };
+
+  const applyVoiceEstimate = (actions: any[]) => {
+    haptic("success");
+    setItems((arr) => {
+      let next = arr.map((it) => ({ ...it }));
+      const deleteIdx = new Set<number>();
+      const adds: Item[] = [];
+      for (const a of actions) {
+        if (a.op === "set_price" && typeof a.index === "number") {
+          next[a.index] = { ...next[a.index], unit_price: String(a.new_price), price_source: "user", requires_confirmation: false };
+        } else if (a.op === "set_qty" && typeof a.index === "number") {
+          next[a.index] = { ...next[a.index], quantity: String(a.quantity), quantity_source: "user" };
+        } else if (a.op === "delete_item" && typeof a.index === "number") {
+          deleteIdx.add(a.index);
+        } else if (a.op === "add_item") {
+          const kind = a.item_kind === "labor" ? "labor" : a.item_kind === "extra" ? "extra" : "material";
+          adds.push({ item_id: `new_${tmpId++}`, kind, name: a.name || "Nowa pozycja", unit: a.unit || "szt", quantity: String(a.quantity ?? 1), unit_price: String(a.price ?? 0), source: "manual", quantity_source: "user", price_source: "user", confidence: null, catalog_id: null, catalog_name: null, requires_confirmation: false });
+        }
+      }
+      next = next.filter((_, i) => !deleteIdx.has(i));
+      for (const a of actions) {
+        if (a.op === "bump_prices") {
+          const f = 1 + (a.percent || 0) / 100;
+          const kind = a.item_kind || "all";
+          next = next.map((it) => {
+            if (kind === "labor" && it.kind !== "labor") return it;
+            if (kind === "material" && it.kind !== "material") return it;
+            return { ...it, unit_price: String(Math.round(parseNum(it.unit_price) * f * 100) / 100), price_source: "user" };
+          });
+        }
+      }
+      return [...next, ...adds];
+    });
   };
 
   const applyCatalog = (idx: number, entry: any, kind: string) => {
@@ -248,7 +283,10 @@ export default function EstimateEditor() {
           <KeyboardAwareScrollViewInner paths={data.image_paths} />
         ) : null}
 
-        <Text style={styles.section}>POZYCJE ({items.length})</Text>
+        <View style={styles.sectionRow}>
+          <Text style={styles.section}>POZYCJE ({items.length})</Text>
+          <VoiceEditButton context="estimate" estimateItems={items.map((it) => ({ name: it.name, unit: it.unit, quantity: parseNum(it.quantity), unit_price: parseNum(it.unit_price), kind: it.kind }))} onApplyEstimate={applyVoiceEstimate} compact testID="estimate-voice" />
+        </View>
 
         {items.map((it, idx) => {
           const lineTotal = parseNum(it.quantity) * parseNum(it.unit_price);
@@ -478,6 +516,7 @@ const useStyles = makeStyles((colors) => ({
   photoStrip: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   photoThumb: { width: 72, height: 72, borderWidth: 2, borderColor: colors.borderStrong, overflow: "hidden" },
   section: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.muted, textTransform: "uppercase", letterSpacing: 1, marginTop: 4 },
+  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
 
   itemCard: { borderWidth: 2, borderColor: colors.borderStrong, padding: 12, gap: 10, backgroundColor: colors.surface },
   itemTop: { flexDirection: "row", alignItems: "center", gap: 10 },
