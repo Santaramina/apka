@@ -9,36 +9,36 @@ export type ColorScheme = "light" | "dark";
 
 const light = {
   surface: "#FFFFFF",
-  onSurface: "#09090B",
-  surfaceSecondary: "#F4F4F5",
-  onSurfaceSecondary: "#09090B",
-  surfaceTertiary: "#E4E4E7",
-  onSurfaceTertiary: "#09090B",
-  surfaceInverse: "#09090B",
+  onSurface: "#1F2933",
+  surfaceSecondary: "#F4F6F8",
+  onSurfaceSecondary: "#3A4650",
+  surfaceTertiary: "#E7EBEF",
+  onSurfaceTertiary: "#1F2933",
+  surfaceInverse: "#1F2933",
   onSurfaceInverse: "#FFFFFF",
-  muted: "#71717A",
+  muted: "#6B7280",
 
-  brand: "#F97316",
+  brand: "#3E8E63",
   onBrand: "#FFFFFF",
-  brandPrimary: "#EA580C",
+  brandPrimary: "#2F6B4F",
   onBrandPrimary: "#FFFFFF",
-  brandSecondary: "#18181B",
+  brandSecondary: "#1F2933",
   onBrandSecondary: "#FFFFFF",
-  brandTertiary: "#FFEDD5",
-  onBrandTertiary: "#EA580C",
+  brandTertiary: "#E7F2EC",
+  onBrandTertiary: "#2F6B4F",
 
-  success: "#16A34A",
+  success: "#2F9E5B",
   onSuccess: "#FFFFFF",
-  warning: "#EAB308",
-  onWarning: "#09090B",
-  error: "#DC2626",
+  warning: "#E8A33D",
+  onWarning: "#1F2933",
+  error: "#E5484D",
   onError: "#FFFFFF",
-  info: "#2563EB",
+  info: "#3B82F6",
   onInfo: "#FFFFFF",
 
-  border: "#D4D4D8",
-  borderStrong: "#09090B",
-  divider: "#E4E4E7",
+  border: "#E5E8EC",
+  borderStrong: "#D3D9DF",
+  divider: "#EDF0F3",
 };
 
 export type ThemeColors = typeof light;
@@ -64,7 +64,16 @@ export const spacing = {
   "3xl": 48,
 };
 
-export const radius = { sm: 0, md: 0, lg: 0, pill: 0 };
+export const radius = { sm: 8, md: 12, lg: 16, pill: 999 };
+
+// Soft elevation shared across cards/sheets.
+export const shadow = {
+  shadowColor: "#0F172A",
+  shadowOpacity: 0.06,
+  shadowRadius: 12,
+  shadowOffset: { width: 0, height: 4 },
+  elevation: 2,
+} as const;
 
 export function setColorScheme(scheme: ColorScheme | null) {
   Appearance.setColorScheme?.(scheme);

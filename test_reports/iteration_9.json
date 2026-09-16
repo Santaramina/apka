@@ -1,0 +1,43 @@
+{
+  "summary": "Backend-only verification of calc_mode (3 values), included_in_calc, image_paths persistence, and PDF calc_mode-aware exclusion + 409 requires_confirmation gating — ALL GREEN. New file: /app/backend/tests/test_calc_mode_and_photos.py (14 tests, 33s live against public URL https://estimate-pro-112.preview.emergentagent.com). Full backend suite: 161/164 pass. The 3 remaining failures are the SAME pre-existing xdist scheduling issue in tests/test_estimate_pipeline.py (module-level `_state` dict shared across worker classes) — already documented in iteration_8, unrelated to this review. Coverage highlights: (1) POST /api/estimates persists default calc_mode='labor_materials'; totals for mixed items (2 materials=650, labor=800, extra=100, VAT23%) → gross 1906.50. (2) PUT calc_mode='labor_only' → materials_cost=0.00, subtotal=900.00, gross=1107.00, items[] still len==4. (3) PUT calc_mode='labor_selected_materials' with Gniazdko included_in_calc=False → materials_cost=500.00 (Kabel only), subtotal=1400.00, gross=1722.00; all 4 items still in items[]. included_in_calc flag persists across GET. (4) Flipping included_in_calc back to True via PUT recomputes materials_cost=650.00 while keeping calc_mode='labor_selected_materials'. (5) Switching back to 'labor_materials' preserves all 4 items and restores materials_cost=650.00. (6) GET /api/estimates/{id}/pdf: returns 200 %PDF- when no requires_confirmation; labor_only PDF text excludes 'TEST_Kabel YDY' + 'TEST_Gniazdko' rows but keeps 'TEST_Punkt elektryczny' + 'TEST_Dojazd'; labor_selected_materials PDF excludes only the Gniazdko row and keeps the Kabel row; PDF returns 409 with detail.code='requires_confirmation', count>=1, items[], Polish message containing 'potwierdzenia' when any item has requires_confirmation=True. (7) PUT /api/estimates/{id} persists image_paths through add (2 uploaded jpegs), partial remove (1 remains), and full clear ([]). (8) REGRESSIONS confirmed: /api/ai/analyze creates estimate with items where price_source ∈ {catalog, user, None} — never 'ai'; null price_source ⇒ unit_price=0.0 AND requires_confirmation=True (invariant holds). /api/voice/parse-command context='estimate' returns 200 with actions[]. CSV import preview auto-maps Polish headers (Nazwa/Cena netto/Jednostka/Nr katalogowy) and apply creates rows (created+updated>=2). Price snapshot invariant: catalog material 100→250 update does NOT change estimate item.unit_price (still 100.0, catalog_id preserved). NO backend changes were made — testing only. Deprecated packages detected: none. React Native issues: not evaluated (backend-only per request).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_calc_mode_and_photos.py",
+    "/app/test_reports/pytest/pytest_calc_mode.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(carried from iteration_8) Fix pre-existing xdist flakiness in tests/test_estimate_pipeline.py: module-level `_state` dict is not shared across worker classes under `--dist loadscope`; move est_id/project_id to a session-scoped fixture OR annotate the dependent classes with @pytest.mark.xdist_group('pipeline'). Affects: TestPDF::test_pdf_download, TestPDF::test_pdf_hides_internals, TestTotalsMath::test_put_recomputes_totals_no_double_counting."
+  ],
+  "critical_code_review_comments": [
+    "server.compute_totals (server.py:67-105) correctly gates material lines through material_counts(it, calc_mode) BEFORE summing — labor and extra kinds are always counted, never gated. Line 78-79 branch is airtight.",
+    "server.material_counts (server.py:55-64) treats missing included_in_calc as True (default-open), matching the pydantic default in EstimateItemIn.included_in_calc=True (server.py:215). Safe for legacy items without the field.",
+    "server.update_estimate (server.py:1183-1185) whitelists calc_mode and image_paths in the persisted fields — both flow through cleanly. items[] is re-materialized only when the request supplies items (server.py:1176-1182), so PUT {calc_mode:...} alone does NOT mutate items — verified live (items count stays 4 across all mode toggles).",
+    "pdf_service._counts (pdf_service.py:114-122) mirrors server.material_counts logic and is applied to filter items BEFORE building the offer table AND before computing client_subtotal, so excluded materials disappear from both the visible rows and the totals block. Consistent with backend totals.",
+    "server.estimate_pdf (server.py:1209-1227) raises 409 with a structured JSON detail {code, count, items, message} and a Polish message; count uses len(unconfirmed); pluralization handled ('pozycja wymaga' vs 'pozycji wymaga'). Frontend can key off detail.code=='requires_confirmation'.",
+    "AI analyze invariant (server.py:1002-1004): if price_source is None → requires_confirmation is forced to True. Combined with 'AI never sets unit_price' this guarantees no invented prices ever bypass user confirmation and PDF generation is blocked until user resolves them.",
+    "PDF factor = 1 + (markup + margin)/100 is applied to unit_price for the client view (pdf_service.py:107,128) — client sees a single 'Cena netto' without seeing markup/margin/profit breakdown. Correct for offer document.",
+    "Minor: server.py is 1273 lines — approaching the 700-line guideline. Recommend splitting into routers (auth, catalog, estimates, import, voice, files) but not blocking. Also FastAPI on_event startup/shutdown deprecation warnings (5 total) — mentioned in iteration_8, still open."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_calc_mode_and_photos.py (NEW — 14 HTTP tests, ~33s incl. one live Gemini analyze call)",
+    "/app/test_reports/pytest/pytest_calc_mode.xml (NEW)",
+    "/app/test_reports/pytest/pytest_results.xml (REGENERATED)",
+    "/app/test_reports/iteration_9.json"
+  ],
+  "success_rate": {
+    "backend": "98.2% (161/164 full suite; 14/14 new file for calc_mode/image_paths/PDF exclusion). The 3 failures are pre-existing xdist scheduling flake in test_estimate_pipeline.py, unrelated to this review.",
+    "frontend": "not tested (backend-only review per request)"
+  },
+  "seed_data_creation": "Module-scoped fixture creates TEST_CALC_Klient_* + TEST_CALC_Inw_* and a base estimate with 4 items (TEST_Kabel YDY, TEST_Gniazdko, TEST_Punkt elektryczny, TEST_Dojazd). Snapshot test creates TEST_SNAP_Mat_* material. Import test creates 2 TEST_CALCIMP_* materials. All are soft-deleted at teardown; residuals are harmless (TEST_ prefixed).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: cd /app/backend && pytest tests/test_calc_mode_and_photos.py -v (33s). For full regression: pytest tests/ (~3 min). The 3 pipeline-file failures under xdist are known/unrelated. Key contract points to keep asserting on future changes: (a) PUT /api/estimates/{id} with only {calc_mode:...} MUST NOT mutate items[]; (b) material_counts is the single source of truth for both server.compute_totals AND pdf_service._counts — if you touch one, touch the other; (c) 409 payload shape is a JSON object at detail (NOT string): {code, count, items, message} — mobile client keys off detail.code=='requires_confirmation'; (d) price_source==None ⇒ unit_price==0 AND requires_confirmation==True.",
+  "rca_of_issue": "N/A — no bugs found in the current review scope. Only pre-existing xdist scheduling flake in test_estimate_pipeline.py persists and is documented above."
+}

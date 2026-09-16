@@ -179,3 +179,20 @@ frontend:
 test_credentials: test@budkoszt.pl / test123
 agent_communication:
   - "ETAP 2+3. Prosze przetestowac backend import (preview+apply, dedup po SKU/EAN, update_existing, pomijanie blednych, brak usuwania danych) oraz REGRESJE (ETAP1 pola, PATCH status, AI analyze, kosztorysy-kopie cen, glos, PDF). Frontend: ekran importu renderuje sie (picker pliku natywny - w web tylko render), wyszukiwarka katalogu w edytorze dziala (dodanie pozycji z cena-kopia). NIE zmieniac matching.py. Backend unit lacznie: 52 passed (import 12 + wczesniejsze)."
+
+## Modernizacja UI + tryb kalkulacji + podgląd zdjęć (2026-06)
+backend:
+  - task: "calc_mode (labor_materials/labor_only/labor_selected_materials) + included_in_calc; compute_totals i PDF respektują tryb; PUT persystuje calc_mode + image_paths"
+    file: "/app/backend/server.py, /app/backend/pdf_service.py"
+    status: implemented; needs_retesting: true
+    details: "labor_only -> materiały NIE liczone; labor_selected_materials -> tylko included_in_calc. Robocizna/extra zawsze. Przełączenie NIE usuwa pozycji. Live: labor_only mat 2750->0, gross 4501.65->806.26, powrót OK."
+frontend:
+  - task: "Nowy motyw zieleń/biel/grafit (theme.ts + ui.tsx), przebudowa edytora (zakładki, karty, statystyki, dolny panel), selektor trybu kalkulacji, checkbox licz materiał"
+    file: "/app/frontend/src/theme.ts, /app/frontend/src/components/ui.tsx, /app/frontend/app/estimate/[id].tsx"
+    status: implemented; needs_retesting: true
+  - task: "Podgląd zdjęć: miniatury, pełny ekran pinch-zoom/swipe (PhotoViewer), dodawanie (aparat/galeria) i usuwanie z zapisem"
+    file: "/app/frontend/src/components/photo-viewer.tsx, /app/frontend/app/estimate/[id].tsx"
+    status: implemented; needs_retesting: true
+test_credentials: test@budkoszt.pl / test123
+agent_communication:
+  - "Prosze przetestowac BACKEND: calc_mode w compute_totals i PDF (materiały nieliczone poza sumą i tabelą PDF), included_in_calc, PUT zapisuje calc_mode+image_paths, blokada PDF przy requires_confirmation (409). REGRESJE: analyze, snapshot cen, glos, import. NIE zmieniac matching.py."

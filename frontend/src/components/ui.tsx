@@ -5,7 +5,7 @@ import { ActivityIndicator, Platform, Pressable, StyleProp, Text, TextInput, Tex
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fonts } from "@/src/lib/fonts";
-import { makeStyles, useTheme } from "@/src/theme";
+import { makeStyles, radius, shadow, useTheme } from "@/src/theme";
 
 export function haptic(kind: "light" | "medium" | "heavy" | "success" | "error" = "light") {
   if (Platform.OS === "web") return;
@@ -239,36 +239,37 @@ export function Loading({ testID }: { testID?: string }) {
 }
 
 const useStyles = makeStyles((colors) => ({
-  header: { backgroundColor: colors.surface, borderBottomWidth: 2, borderBottomColor: colors.borderStrong, paddingHorizontal: 16, paddingBottom: 14 },
+  header: { backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: 16, paddingBottom: 14 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   backBtn: { width: 40, height: 40, alignItems: "flex-start", justifyContent: "center" },
-  headerTitle: { fontFamily: fonts.displayBold, fontSize: 24, color: colors.onSurface, letterSpacing: -0.5 },
+  headerTitle: { fontFamily: fonts.displayBold, fontSize: 22, color: colors.onSurface, letterSpacing: -0.4 },
   headerSub: { fontFamily: fonts.body, fontSize: 13, color: colors.muted, marginTop: 2 },
 
-  btn: { minHeight: 56, borderWidth: 2, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  btn: { minHeight: 54, borderRadius: radius.md, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
   btnInner: { flexDirection: "row", alignItems: "center", gap: 10 },
-  btnText: { fontFamily: fonts.displayBold, fontSize: 16, letterSpacing: 0.3 },
+  btnText: { fontFamily: fonts.displayBold, fontSize: 16, letterSpacing: 0.2 },
 
-  card: { backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.borderStrong, padding: 16 },
+  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 16, ...shadow },
 
   fieldWrap: { gap: 6 },
-  fieldLabel: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.onSurface, textTransform: "uppercase", letterSpacing: 0.5 },
+  fieldLabel: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.onSurfaceSecondary, letterSpacing: 0.2 },
   input: {
     minHeight: 52,
-    borderWidth: 2,
-    borderColor: colors.borderStrong,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontFamily: fonts.body,
     fontSize: 16,
     color: colors.onSurface,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceSecondary,
   },
   inputMulti: { minHeight: 110, textAlignVertical: "top" },
 
   money: { fontFamily: fonts.bodySemi, fontVariant: ["tabular-nums"], color: colors.onSurface },
 
-  badge: { paddingHorizontal: 8, paddingVertical: 3, alignSelf: "flex-start" },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, alignSelf: "flex-start" },
   badgeText: { fontFamily: fonts.bodySemi, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 },
 
   empty: { alignItems: "center", justifyContent: "center", padding: 40, gap: 10 },

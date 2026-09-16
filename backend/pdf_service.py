@@ -109,7 +109,19 @@ def build_offer_pdf(estimate: dict, computed: dict, company: dict, client: dict,
     pdf.set_text_color(9, 9, 11)
     pdf.set_draw_color(212, 212, 216)
     pdf.set_line_width(0.2)
-    items = estimate.get("items", [])
+    calc_mode = estimate.get("calc_mode", "labor_materials")
+
+    def _counts(it: dict) -> bool:
+        if it.get("kind", "material") != "material":
+            return True
+        if calc_mode == "labor_only":
+            return False
+        if calc_mode == "labor_selected_materials":
+            inc = it.get("included_in_calc")
+            return True if inc is None else bool(inc)
+        return True
+
+    items = [it for it in estimate.get("items", []) if _counts(it)]
     client_subtotal = 0.0
     for idx, it in enumerate(items, start=1):
         qty = float(it.get("quantity", 0) or 0)

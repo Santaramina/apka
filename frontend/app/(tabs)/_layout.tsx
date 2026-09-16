@@ -15,8 +15,8 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: {
           backgroundColor: colors.surface,
-          borderTopWidth: 2,
-          borderTopColor: colors.borderStrong,
+          borderTopWidth: 1,
+          borderTopColor: colors.divider,
           ...(Platform.OS === "web" ? { height: 64 } : {}),
         },
         tabBarItemStyle: { alignSelf: "center" },

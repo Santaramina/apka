@@ -14,7 +14,7 @@ import { apiFetch, uploadFile } from "@/src/api/client";
 import { Button, Field, ScreenHeader, haptic } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { fonts } from "@/src/lib/fonts";
-import { makeStyles, useTheme } from "@/src/theme";
+import { makeStyles, radius, useTheme } from "@/src/theme";
 
 export default function Capture() {
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
@@ -221,15 +221,15 @@ export default function Capture() {
 
 const useStyles = makeStyles((colors) => ({
   container: { flex: 1, backgroundColor: colors.surface },
-  label: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.onSurface, textTransform: "uppercase", letterSpacing: 0.5 },
+  label: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.onSurface, letterSpacing: 0.2 },
   labelRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   captureRow: { flexDirection: "row", gap: 12 },
-  captureBtn: { flex: 1, height: 110, borderWidth: 2, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: colors.surfaceSecondary },
+  captureBtn: { flex: 1, height: 110, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: colors.surfaceSecondary },
   captureText: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.onSurface },
-  thumb: { width: 90, height: 90, borderWidth: 2, borderColor: colors.borderStrong, overflow: "hidden" },
+  thumb: { width: 90, height: 90, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
   thumbDel: { position: "absolute", top: 0, right: 0, width: 26, height: 26, backgroundColor: colors.error, alignItems: "center", justifyContent: "center" },
-  recordBtn: { minHeight: 64, borderWidth: 2, borderColor: colors.borderStrong, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, backgroundColor: colors.surfaceSecondary },
-  recordActive: { backgroundColor: colors.error, borderColor: colors.borderStrong },
+  recordBtn: { minHeight: 64, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, backgroundColor: colors.surfaceSecondary },
+  recordActive: { backgroundColor: colors.error, borderColor: colors.error },
   recordText: { fontFamily: fonts.bodySemi, fontSize: 15, color: colors.onSurface, flex: 1 },
   clearAudio: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start" },
   clearAudioText: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.error },

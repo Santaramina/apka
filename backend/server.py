@@ -52,7 +52,20 @@ def public_user(user: dict) -> dict:
     }
 
 
+def material_counts(it: dict, calc_mode: str) -> bool:
+    """Whether a material item is included in totals for the given calc mode.
+    labor_only -> materials never counted; labor_selected_materials -> only items
+    with included_in_calc True (default True when missing); otherwise all counted."""
+    if calc_mode == "labor_only":
+        return False
+    if calc_mode == "labor_selected_materials":
+        inc = it.get("included_in_calc")
+        return True if inc is None else bool(inc)
+    return True
+
+
 def compute_totals(est: dict) -> dict:
+    calc_mode = est.get("calc_mode", "labor_materials")
     materials_cost = labor_cost = extra_cost = 0.0
     for it in est.get("items", []):
         line = float(it.get("quantity", 0) or 0) * float(it.get("unit_price", 0) or 0)
@@ -62,7 +75,8 @@ def compute_totals(est: dict) -> dict:
         elif kind == "extra":
             extra_cost += line
         else:
-            materials_cost += line
+            if material_counts(it, calc_mode):
+                materials_cost += line
     subtotal = materials_cost + labor_cost + extra_cost
     markup_pct = float(est.get("markup_percent", 0) or 0)
     margin_pct = float(est.get("margin_percent", 0) or 0)
@@ -95,6 +109,7 @@ def estimate_out(est: dict) -> dict:
     est = {k: v for k, v in est.items() if k != "_id"}
     est.setdefault("analysis_status", "completed")
     est.setdefault("margin_percent", 0)
+    est.setdefault("calc_mode", "labor_materials")
     est["totals"] = compute_totals(est)
     return est
 
@@ -197,6 +212,7 @@ class EstimateItemIn(BaseModel):
     catalog_name: Optional[str] = None
     requires_confirmation: Optional[bool] = False
     candidate_matches: Optional[List[dict]] = None
+    included_in_calc: Optional[bool] = True
 
 
 class EstimateIn(BaseModel):
@@ -209,6 +225,7 @@ class EstimateIn(BaseModel):
     discount_percent: float = 0
     vat_percent: float = 23
     status: str = "draft"
+    calc_mode: str = "labor_materials"
 
 
 class EstimateUpdateIn(BaseModel):
@@ -220,6 +237,8 @@ class EstimateUpdateIn(BaseModel):
     discount_percent: Optional[float] = None
     vat_percent: Optional[float] = None
     status: Optional[str] = None
+    calc_mode: Optional[str] = None
+    image_paths: Optional[List[str]] = None
 
 
 class AnalyzeIn(BaseModel):
@@ -1126,6 +1145,7 @@ async def create_estimate(body: EstimateIn, user: dict = Depends(get_current_use
         "discount_percent": body.discount_percent,
         "vat_percent": body.vat_percent,
         "status": body.status,
+        "calc_mode": body.calc_mode or "labor_materials",
         "source": "manual",
         "created_at": now_utc(),
         "updated_at": now_utc(),
@@ -1160,7 +1180,7 @@ async def update_estimate(estimate_id: str, body: EstimateUpdateIn, user: dict =
             d["item_id"] = d.get("item_id") or str(uuid.uuid4())
             items.append(d)
         updates["items"] = items
-    for k in ["title", "scope_summary", "markup_percent", "margin_percent", "discount_percent", "vat_percent", "status"]:
+    for k in ["title", "scope_summary", "markup_percent", "margin_percent", "discount_percent", "vat_percent", "status", "calc_mode", "image_paths"]:
         if k in data:
             updates[k] = data[k]
     updates["updated_at"] = now_utc()
