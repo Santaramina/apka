@@ -90,3 +90,15 @@ Zmienione pliki: backend/matching.py (przepisany), backend/server.py (integracja
 - Frontend edytor: badge Ilość odczytana/szacowana/ręczna; edycja ilości/ceny/produktu, kandydaci, dodaj/usuń; ustawienia narzut/marża/rabat/VAT przeliczają sumy live.
 - PDF: nie ujawnia narzutu/marży/zysku/kosztu zakupu (zweryfikowane).
 - Testy: backend 103/103 (test_totals + test_estimate_pipeline 17 live + matching + voice + upload + backend_test). Frontend editor E2E OK.
+
+## Uniwersalny katalog (ETAP 1-3, 2026-06)
+- ETAP 1: materiały +main_category(7 kat.)/ean/opis/vat_rate/price_source_label/source_url/status/notes; usługi +opis/rate_min/max/includes_materials/status/notes. Migracja nieniszcząca. PATCH status. Panel: filtry (kat/podkat/producent/jednostka), sort, cena netto+brutto(VAT), źródło/data, szybka (de)aktywacja. Formularze z pełnymi polami.
+- ETAP 2: Import CSV/Excel — /catalog/import/preview (auto-mapowanie PL/EN) + /catalog/import/apply (walidacja, dedup, update po SKU/EAN/nazwie, pomijanie błędów, podsumowanie; nic nie usuwa). Frontend: /catalog-import (expo-document-picker → podgląd → mapowanie → podsumowanie). Moduł catalog_import.py (pandas+openpyxl).
+- ETAP 3: Wyszukiwarka katalogu w edytorze wyceny (CatalogPicker: materiały+usługi, szukaj, cena kopiowana jako SNAPSHOT do pozycji). AI prompt: producent/model/zamienniki w note. Inwariant: brak ceny z katalogu ⇒ requires_confirmation=True.
+- Zewnętrzne źródła cen: NIE zintegrowane (pola price_source_label/source_url gotowe). Do omówienia konkretne legalne źródło.
+- Testy: backend 78 unit + 17 pipeline (live). Snapshot cen w kosztorysach potwierdzony. Pliki: server.py, seed_data.py, catalog_import.py, ai_service.py; frontend catalog.tsx, catalog-form.tsx, catalog-import.tsx, catalog-picker.tsx, voice.tsx, estimate/[id].tsx, src/lib/catalog.ts, src/api/client.ts.
+
+## Blokada PDF + podsumowanie źródeł (2026-06)
+- Blokada PDF: GET /api/estimates/{id}/pdf zwraca 409 (detail.code=requires_confirmation, count, items[], message PL), gdy jakakolwiek pozycja ma requires_confirmation=True. Live-verified: kosztorys z 3 pozycjami do potwierdzenia → 409; bez → 200 PDF.
+- Frontend edytor: pasek podsumowania źródeł nad pozycjami (liczniki: odczytane / szacowane / wymaga potw.), czerwony baner ostrzegawczy gdy confirmCount>0, przycisk PDF wyszarzony + blokada sharePdf z komunikatem PL. Obsługa 409 w FileSystem.downloadAsync (status).
+- Pliki: backend/server.py (estimate_pdf), frontend/app/estimate/[id].tsx.

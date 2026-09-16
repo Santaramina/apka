@@ -205,10 +205,10 @@ export function Money({ children, style, testID }: { children: string; style?: S
 }
 
 // -------------------- Badge --------------------
-export function Badge({ label, kind = "neutral" }: { label: string; kind?: "neutral" | "success" | "warning" | "info" }) {
+export function Badge({ label, kind = "neutral" }: { label: string; kind?: "neutral" | "success" | "warning" | "info" | "danger" }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const bg = kind === "success" ? colors.success : kind === "warning" ? colors.warning : kind === "info" ? colors.info : colors.surfaceTertiary;
+  const bg = kind === "success" ? colors.success : kind === "warning" ? colors.warning : kind === "info" ? colors.info : kind === "danger" ? colors.error : colors.surfaceTertiary;
   const fg = kind === "neutral" ? colors.onSurface : kind === "warning" ? colors.onWarning : "#FFFFFF";
   return (
     <View style={[styles.badge, { backgroundColor: bg }]}>

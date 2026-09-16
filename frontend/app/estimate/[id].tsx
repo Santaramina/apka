@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiFetch, fileUrl, pdfUrl } from "@/src/api/client";
 import { Loading, Money, ScreenHeader, haptic } from "@/src/components/ui";
 import { VoiceEditButton } from "@/src/components/voice";
+import { CatalogPicker, CatalogPick } from "@/src/components/catalog-picker";
 import { useToast } from "@/src/components/toast";
 import { KINDS, UNITS, num, pln, statusLabel } from "@/src/lib/format";
 import { fonts } from "@/src/lib/fonts";
@@ -62,6 +63,7 @@ export default function EstimateEditor() {
   const [vat, setVat] = useState("23");
   const [status, setStatus] = useState("draft");
   const [showSettings, setShowSettings] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pickerIdx, setPickerIdx] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -95,6 +97,10 @@ export default function EstimateEditor() {
   const gross = net + vatVal;
   const profit = net - subtotal;
 
+  const readCount = items.filter((i) => i.quantity_source === "ai_read").length;
+  const estimatedCount = items.filter((i) => i.quantity_source === "ai_estimated").length;
+  const confirmCount = items.filter((i) => i.requires_confirmation).length;
+
   const updateItem = (idx: number, patch: Partial<Item>) => setItems((arr) => arr.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
   const editQty = (idx: number, t: string) => updateItem(idx, { quantity: t, quantity_source: "user" });
   const editPrice = (idx: number, t: string) => updateItem(idx, { unit_price: t, price_source: "user", requires_confirmation: false });
@@ -106,6 +112,25 @@ export default function EstimateEditor() {
   const addItem = () => {
     haptic("medium");
     setItems((arr) => [...arr, { item_id: `new_${tmpId++}`, kind: "material", name: "", unit: "szt", quantity: "1", unit_price: "0", source: "manual", quantity_source: "user", price_source: "user", confidence: null, catalog_id: null, catalog_name: null }]);
+  };
+
+  const addFromCatalog = (p: CatalogPick) => {
+    haptic("success");
+    setItems((arr) => [...arr, {
+      item_id: `new_${tmpId++}`,
+      kind: p.kind === "labor" ? "labor" : "material",
+      name: p.name,
+      unit: p.unit,
+      quantity: "1",
+      unit_price: String(p.price),
+      source: "catalog",
+      quantity_source: "user",
+      price_source: "catalog",
+      confidence: null,
+      catalog_id: p.catalog_id,
+      catalog_name: p.name,
+      requires_confirmation: false,
+    }]);
   };
 
   const applyVoiceEstimate = (actions: any[]) => {
@@ -211,13 +236,27 @@ export default function EstimateEditor() {
 
   const sharePdf = async () => {
     haptic("medium");
+    if (confirmCount > 0) {
+      toast.show(
+        confirmCount === 1
+          ? "1 pozycja wymaga potwierdzenia ceny. Uzupełnij cenę, aby wygenerować PDF."
+          : `${confirmCount} pozycji wymaga potwierdzenia ceny. Uzupełnij ceny, aby wygenerować PDF.`,
+        "error"
+      );
+      return;
+    }
     const ok = await save(true);
     if (!ok) return;
     const url = pdfUrl(id);
     try {
       if (Platform.OS === "web") { window.open(url, "_blank"); return; }
       const target = FileSystem.cacheDirectory + `oferta_${id}.pdf`;
-      const { uri } = await FileSystem.downloadAsync(url, target);
+      const { uri, status } = await FileSystem.downloadAsync(url, target);
+      if (status === 409) {
+        toast.show("Kosztorys zawiera pozycje wymagające potwierdzenia ceny.", "error");
+        return;
+      }
+      if (status >= 400) { toast.show("Nie udało się otworzyć PDF", "error"); return; }
       if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf" });
     } catch (e: any) {
       toast.show("Nie udało się otworzyć PDF", "error");
@@ -289,6 +328,32 @@ export default function EstimateEditor() {
           <Text style={styles.section}>POZYCJE ({items.length})</Text>
           <VoiceEditButton context="estimate" estimateItems={items.map((it) => ({ name: it.name, unit: it.unit, quantity: parseNum(it.quantity), unit_price: parseNum(it.unit_price), kind: it.kind }))} onApplyEstimate={applyVoiceEstimate} compact testID="estimate-voice" />
         </View>
+
+        {items.length > 0 ? (
+          <View style={styles.summaryRow} testID="source-summary">
+            <View style={[styles.summaryChip, { backgroundColor: "#DBEAFE" }]}>
+              <Text style={styles.summaryNum}>{readCount}</Text>
+              <Text style={styles.summaryLbl}>odczytane</Text>
+            </View>
+            <View style={[styles.summaryChip, { backgroundColor: "#FEF3C7" }]}>
+              <Text style={styles.summaryNum}>{estimatedCount}</Text>
+              <Text style={styles.summaryLbl}>szacowane</Text>
+            </View>
+            <View style={[styles.summaryChip, { backgroundColor: confirmCount > 0 ? "#FEE2E2" : colors.surfaceTertiary }]}>
+              <Text style={styles.summaryNum}>{confirmCount}</Text>
+              <Text style={styles.summaryLbl}>wymaga potw.</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {confirmCount > 0 ? (
+          <View style={styles.confirmWarn} testID="confirm-warning">
+            <WarningCircle size={20} color={colors.error} weight="fill" />
+            <Text style={styles.confirmWarnText}>
+              {confirmCount === 1 ? "1 pozycja wymaga" : `${confirmCount} pozycji wymaga`} potwierdzenia ceny. Uzupełnij ceny, aby wygenerować ofertę PDF.
+            </Text>
+          </View>
+        ) : null}
 
         {items.map((it, idx) => {
           const lineTotal = parseNum(it.quantity) * parseNum(it.unit_price);
@@ -372,10 +437,16 @@ export default function EstimateEditor() {
           );
         })}
 
-        <Pressable onPress={addItem} style={styles.addItem} testID="add-item">
-          <Plus size={20} color={colors.onSurface} weight="bold" />
-          <Text style={styles.addItemText}>Dodaj pozycję</Text>
-        </Pressable>
+        <View style={styles.addRow}>
+          <Pressable onPress={addItem} style={[styles.addItem, { flex: 1 }]} testID="add-item">
+            <Plus size={20} color={colors.onSurface} weight="bold" />
+            <Text style={styles.addItemText}>Własna pozycja</Text>
+          </Pressable>
+          <Pressable onPress={() => { haptic("light"); setPickerOpen(true); }} style={[styles.addItem, styles.addFromCat, { flex: 1 }]} testID="add-from-catalog">
+            <MagnifyingGlass size={20} color={colors.onBrandPrimary} weight="bold" />
+            <Text style={[styles.addItemText, { color: colors.onBrandPrimary }]}>Z katalogu</Text>
+          </Pressable>
+        </View>
 
         {/* Settings collapsible */}
         <Pressable onPress={() => setShowSettings((v) => !v)} style={styles.settingsToggle} testID="toggle-settings">
@@ -431,13 +502,15 @@ export default function EstimateEditor() {
             <Pressable onPress={() => save()} style={[styles.footerBtn, styles.saveBtn]} disabled={busy} testID="save-estimate">
               <Text style={styles.saveBtnText}>{busy ? "..." : "ZAPISZ"}</Text>
             </Pressable>
-            <Pressable onPress={sharePdf} style={[styles.footerBtn, styles.pdfBtn]} testID="generate-pdf">
+            <Pressable onPress={sharePdf} style={[styles.footerBtn, styles.pdfBtn, confirmCount > 0 && styles.pdfBtnDisabled]} testID="generate-pdf">
               <FilePdf size={20} color={colors.onBrandPrimary} weight="bold" />
               <Text style={styles.pdfBtnText}>PDF</Text>
             </Pressable>
           </View>
         </View>
       </KeyboardStickyView>
+
+      <CatalogPicker visible={pickerOpen} onClose={() => setPickerOpen(false)} onPick={addFromCatalog} />
 
       <Modal visible={pickerIdx !== null} transparent animationType="slide" onRequestClose={() => setPickerIdx(null)}>
         <View style={styles.modalOverlay}>
@@ -543,6 +616,8 @@ const useStyles = makeStyles((colors) => ({
   lineTotal: { fontFamily: fonts.displayBold, fontSize: 16, color: colors.onSurface },
 
   addItem: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 52, borderWidth: 2, borderColor: colors.borderStrong, borderStyle: "dashed", backgroundColor: colors.surfaceSecondary },
+  addRow: { flexDirection: "row", gap: 10 },
+  addFromCat: { backgroundColor: colors.brandPrimary, borderStyle: "solid" },
   addItemText: { fontFamily: fonts.bodySemi, fontSize: 15, color: colors.onSurface },
 
   settingsToggle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 52, borderWidth: 2, borderColor: colors.borderStrong, paddingHorizontal: 14, backgroundColor: colors.surface },
@@ -572,7 +647,15 @@ const useStyles = makeStyles((colors) => ({
   saveBtn: { backgroundColor: colors.surface },
   saveBtnText: { fontFamily: fonts.displayBold, fontSize: 16, color: colors.onSurface },
   pdfBtn: { backgroundColor: colors.brandPrimary },
+  pdfBtnDisabled: { opacity: 0.4 },
   pdfBtnText: { fontFamily: fonts.displayBold, fontSize: 16, color: colors.onBrandPrimary },
+
+  summaryRow: { flexDirection: "row", gap: 8 },
+  summaryChip: { flex: 1, borderWidth: 1, borderColor: colors.border, paddingVertical: 8, alignItems: "center" },
+  summaryNum: { fontFamily: fonts.displayBold, fontSize: 20, color: colors.onSurface },
+  summaryLbl: { fontFamily: fonts.bodySemi, fontSize: 10.5, color: colors.onSurface, letterSpacing: 0.3, textTransform: "uppercase" },
+  confirmWarn: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#FEE2E2", borderWidth: 2, borderColor: colors.error, padding: 12 },
+  confirmWarnText: { flex: 1, fontFamily: fonts.bodySemi, fontSize: 13, color: colors.onSurface, lineHeight: 18 },
 
   centerBox: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40, gap: 14 },
   centerTitle: { fontFamily: fonts.displayBold, fontSize: 20, color: colors.onSurface, textAlign: "center", letterSpacing: -0.5 },

@@ -1,0 +1,44 @@
+{
+  "summary": "ETAP 2 (CSV/Excel import) + ETAP 3 (catalog picker + estimate price snapshot) end-to-end validation — ALL GREEN except one unrelated pre-existing flaky test. New file: /app/backend/tests/test_import_and_snapshot.py — 19 new HTTP integration tests (11 core + 8 regression). Full suite: 149/150 pass in 178s. Only failure = tests/test_estimate_pipeline.py::TestTotalsMath::test_put_recomputes_totals_no_double_counting which is a pre-existing xdist loadscope class-isolation flaw (module-level _state dict not shared across worker classes) — unrelated to ETAP 2/3. New coverage: (1) POST /api/catalog/import/preview: CSV with 7 Polish headers 'Nazwa;Producent;Nr katalogowy;EAN;Cena netto;Jednostka;VAT' auto-maps all 7 to canonical fields (name/manufacturer/sku/ean/unit_price/unit/vat_rate); response shape has columns[], suggested_mapping, fields, required=['name','unit_price'], sample_rows, total_rows=5. .xlsx via openpyxl also parses (Nazwa/Cena netto auto-mapped). Empty file → 400. Missing auth → 401/403. (2) POST /api/catalog/import/apply: 1st run on 5-row CSV creates 2 valid materials, skips 3 (empty name, bad price 'abc', in-file SKU duplicate) with matching PL errors[]. Verified persisted flags: price_source_label='import', price_is_example=false, main_category derived (non-empty), unit_price=4.80, vat_rate=23, sku/ean/manufacturer preserved, status='active'. 2nd run with update_existing=true on SAME file → created=0, updated=2 (matched by SKU-first policy). Catalog count only grew or updated — NOTHING deleted. (3) Labor import: 'Nazwa usługi;Cena robocizny;Jednostka' auto-maps to name/rate/unit; required=['name','rate']; apply creates 2 labor_rates with rate=35/9.50, unit=szt/mb, price_source_label='import'. (4) CRITICAL SNAPSHOT: created material at 100.00, added to estimate at 100.00, ran import updating catalog to 250.00 via SKU match (updated=1 confirmed), re-read estimate → item.unit_price STILL 100.00, catalog_id preserved. Snapshot invariant HOLDS. (5) Regressions: /materials + /labor-rates carry ETAP1 fields; PATCH /materials/{id}/status + /labor-rates/{id}/status toggle active↔inactive (soft flag, item still listed); /ai/analyze on Polish electrical desc returned ≥3 items in <90s with price_source ∈ {catalog,null,user} (never 'ai') and null-source ⇒ unit_price=0 (AI never invents prices); /voice/parse-command context=catalog + context=estimate both 200 with actions[]; /catalog/voice-apply 200; PDF returns %PDF-; /auth/login returns {token,user}; /projects + /clients list 200. FRONTEND (mobile viewport 390x844, real login test@budkoszt.pl/test123): /catalog-import?type=material renders 'Wybierz plik CSV / Excel · Obsługa .csv, .xlsx' pickBox (data-testid=import-pick) without crash — native document picker cannot be automated on web as expected. /catalog-import?type=labor also renders. Estimate editor /estimate/{id}: two Pressables 'Własna pozycja' and 'Z katalogu' visible. Tapping 'Z katalogu' opens CatalogPicker modal with picker-tab-material, picker-tab-labor and picker-search all present; typing 'YDY' filters to Przewód YDYp 3x1,5 at 8,00 zł; tapping pick-{id} closes modal, appends estimate item with name='Przewód YDYp 3x1,5', unit='mb', unit_price=8, and shows 'Cena: katalog' green badge. Totals recomputed live (bottom bar updated to 227,30 zł). React Native issues: none. Deprecated packages detected: none. SafeAreaView issues detected: none.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_import_and_snapshot.py",
+    "/app/backend/tests/test_import.py",
+    "/app/backend/tests/test_catalog_etap1.py",
+    "/app/backend/tests/test_estimate_pipeline.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Pre-existing (not ETAP 2/3): tests/test_estimate_pipeline.py uses module-level `_state` dict shared across classes. Under pytest.ini `--dist loadscope`, each class goes to a separate worker, so TestTotalsMath/TestEditingCRUD/TestPDF sometimes miss `_state['est_id']` from TestAIPipelinePolishElectrical. Either (a) move est_id into a session fixture, or (b) mark those classes with `@pytest.mark.xdist_group('pipeline')`.",
+    "Optional cleanup: replace FastAPI on_event('startup'/'shutdown') with lifespan handlers (10 DeprecationWarnings)."
+  ],
+  "critical_code_review_comments": [
+    "server.import_apply correctly wires 3-level dedup match (sku → ean → name) inside the user scope with deleted_at:None; existing found → $set update (never insert), missing → new UUID insert. Idempotent re-import behavior verified.",
+    "Imported rows set price_source_label='import', price_is_example=False, price_updated_at=now — matches ETAP1 catalog schema and shows in the UI list as 'źródło: import'.",
+    "catalog_import.build_records is pure/testable; already covered by 12 unit tests in tests/test_import.py. New integration tests exercise the FastAPI wiring end-to-end via public URL.",
+    "PRICE SNAPSHOT INVARIANT verified live: estimate item stores its OWN unit_price with catalog_id as a backlink; the estimate GET does NOT rehydrate price from the current catalog. Import that bumps SKU=TEST_IMP_SNAP001 material 100→250 leaves the estimate's line at 100.00. Contract holds — spec passes.",
+    "CatalogPicker (src/components/catalog-picker.tsx) filters by name+manufacturer+sku+ean+specs, hides inactive items, sorts pl-locale — good UX. It uses tanstack useQuery with queryKey=['materials'] / ['labor-rates'] enabled only while visible.",
+    "estimate/[id].tsx addFromCatalog sets price_source='catalog', copies name/unit/price and catalog_id — no auto-refresh from catalog after creation → snapshot preserved on client too.",
+    "No mocked APIs. Real Gemini via Emergent LLM key still functional on /voice/parse-command and /ai/analyze (verified in this run)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_import_and_snapshot.py (NEW — 19 HTTP integration tests, ~35s incl. live AI call)",
+    "/app/test_reports/iteration_8.json",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "success_rate": {
+    "backend": "99.3% (149/150 pytest; 19/19 for ETAP 2/3 new file). One pre-existing flaky test unrelated to ETAP 2/3.",
+    "frontend": "100% (login, /catalog-import material+labor pickBox render, estimate editor buttons, CatalogPicker open/search/pick → 'Cena: katalog' badge on new item)"
+  },
+  "seed_data_creation": "Tests create then delete TEST_IMP_* materials + labor + projects + clients + estimates in a module-level autouse fixture. UI test created 'TEST_UI_klient2/proj2/est2' rows via API + one Przewód YDYp 3x1,5 line inside that estimate — safe to leave (they're prefixed TEST_ and easy to purge).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: cd /app/backend && pytest tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml. Key new file /app/backend/tests/test_import_and_snapshot.py. Notes: (a) /api/ai/analyze payload uses key 'description' (NOT 'text') and requires project_id; response is the estimate — poll /api/estimates/{id} for analysis_status='ready' or 'completed'. (b) Import apply expects multipart 'file' + Form fields kind, mapping (JSON string column→field), update_existing (string 'true'/'false'). (c) Auth token in frontend web is at window.localStorage['budkoszt_auth_token'] (not 'token').",
+  "rca_of_issue": "N/A — no live ETAP 2/3 bugs. The single pre-existing test_estimate_pipeline failure is an xdist scheduling flaw (module-level _state cross-class), fully described in action_items."
+}

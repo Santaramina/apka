@@ -254,6 +254,48 @@ def _mat_key(trade: str, name: str) -> str:
     return f"m:{trade}:{name}".lower()
 
 
+# ---------------------------------------------------------------------------
+# Kategorie główne (7) — grupowanie nadrzędne. Nieniszczące: pole `main_category`
+# dodawane obok istniejącego `trade`. Mapowanie trade -> main_category.
+# ---------------------------------------------------------------------------
+MAIN_CATEGORIES = [
+    ("elektryka", "Elektryka i elektrotechnika"),
+    ("hydraulika", "Hydraulika i instalacje sanitarne"),
+    ("budownictwo", "Budownictwo"),
+    ("remonty", "Remonty i wykończenia"),
+    ("stolarka", "Stolarka i montaż"),
+    ("ogrod", "Ogrodnictwo i teren zewnętrzny"),
+    ("ogolnobudowlana", "Prace ogólnobudowlane"),
+]
+MAIN_CATEGORY_KEYS = [k for k, _ in MAIN_CATEGORIES]
+
+TRADE_TO_MAIN = {
+    "elektryka": "elektryka",
+    "teletechnika": "elektryka",
+    "sieci_lan": "elektryka",
+    "cctv": "elektryka",
+    "alarmy": "elektryka",
+    "kontrola_dostepu": "elektryka",
+    "domofony": "elektryka",
+    "automatyka": "elektryka",
+    "pv": "elektryka",
+    "hydraulika": "hydraulika",
+    "kanalizacja": "hydraulika",
+    "co": "hydraulika",
+    "hvac": "hydraulika",
+    "gaz": "hydraulika",
+    "wykonczenia": "remonty",
+    "ogolnobudowlana": "ogolnobudowlana",
+}
+
+
+def main_category_for(trade: str) -> str:
+    """Zwraca klucz kategorii głównej dla danej branży (nieniszcząco)."""
+    if trade in MAIN_CATEGORY_KEYS:
+        return trade
+    return TRADE_TO_MAIN.get(trade, "ogolnobudowlana")
+
+
 def _lab_key(trade: str, name: str) -> str:
     return f"l:{trade}:{name}".lower()
 
@@ -263,17 +305,26 @@ def _build_material(user_id, name, trade, subcategory, unit, price, manufacturer
         "material_id": str(uuid.uuid4()),
         "user_id": user_id,
         "name": name,
+        "main_category": main_category_for(trade),
         "trade": trade,
         "category": trade,  # legacy compat
         "subcategory": subcategory,
         "unit": unit,
         "unit_price": price,
+        "vat_rate": 23,
         "manufacturer": manufacturer,
         "sku": sku,
+        "ean": "",
         "specs": specs,
+        "description": "",
+        "price_source_label": "przykładowe",
+        "source_url": "",
+        "status": "active",
+        "notes": "",
         "price_is_example": True,
         "seed_key": _mat_key(trade, name),
         "created_at": ts,
+        "price_updated_at": ts,
         "deleted_at": None,
     }
 
@@ -283,14 +334,23 @@ def _build_labor(user_id, name, trade, subcategory, unit, rate, ts):
         "labor_id": str(uuid.uuid4()),
         "user_id": user_id,
         "name": name,
+        "main_category": main_category_for(trade),
         "trade": trade,
         "category": trade,  # legacy compat
         "subcategory": subcategory,
         "unit": unit,
         "rate": rate,
+        "rate_min": None,
+        "rate_max": None,
+        "includes_materials": False,
+        "description": "",
+        "price_source_label": "przykładowe",
+        "status": "active",
+        "notes": "",
         "price_is_example": True,
         "seed_key": _lab_key(trade, name),
         "created_at": ts,
+        "price_updated_at": ts,
         "deleted_at": None,
     }
 
@@ -320,6 +380,40 @@ async def _migrate_legacy(db, user_id: str):
                 "subcategory": l.get("subcategory", ""),
                 "price_is_example": l.get("price_is_example", True),
                 "seed_key": _lab_key(trade, l.get("name", "")),
+            }},
+        )
+
+    # Etap 1: nowe pola katalogu (main_category, status, vat, źródło itd.) — nieniszcząco
+    async for m in db.materials.find({"user_id": user_id, "main_category": {"$exists": False}}):
+        trade = m.get("trade") or m.get("category") or "ogolnobudowlana"
+        await db.materials.update_one(
+            {"_id": m["_id"]},
+            {"$set": {
+                "main_category": main_category_for(trade),
+                "vat_rate": m.get("vat_rate", 23),
+                "ean": m.get("ean", ""),
+                "description": m.get("description", ""),
+                "price_source_label": m.get("price_source_label", "przykładowe" if m.get("price_is_example") else "ręczne"),
+                "source_url": m.get("source_url", ""),
+                "status": m.get("status", "active"),
+                "notes": m.get("notes", ""),
+                "price_updated_at": m.get("price_updated_at", m.get("created_at")),
+            }},
+        )
+    async for l in db.labor_rates.find({"user_id": user_id, "main_category": {"$exists": False}}):
+        trade = l.get("trade") or l.get("category") or "ogolnobudowlana"
+        await db.labor_rates.update_one(
+            {"_id": l["_id"]},
+            {"$set": {
+                "main_category": main_category_for(trade),
+                "rate_min": l.get("rate_min"),
+                "rate_max": l.get("rate_max"),
+                "includes_materials": l.get("includes_materials", False),
+                "description": l.get("description", ""),
+                "price_source_label": l.get("price_source_label", "przykładowe" if l.get("price_is_example") else "ręczne"),
+                "status": l.get("status", "active"),
+                "notes": l.get("notes", ""),
+                "price_updated_at": l.get("price_updated_at", l.get("created_at")),
             }},
         )
 

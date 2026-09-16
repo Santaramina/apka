@@ -1,0 +1,44 @@
+{
+  "summary": "ETAP 1 catalog expansion end-to-end validation — ALL GREEN. Backend: 119/119 pytest pass in 149.76s (added 16 new tests in test_catalog_etap1.py; prior suites 103 all still green). Coverage: (1) GET /api/materials + /api/labor-rates return every ETAP1 field on every seeded doc: main_category (non-empty), vat_rate, ean, description, price_source_label, source_url, status='active' post-migration, notes; for labor also rate_min/rate_max/includes_materials. Verified >20 materials + >10 labor rates present, no NULL main_category, no lost migration. (2) POST /api/materials with main_category+vat_rate+ean+manufacturer+sku+description+price_source_label(empty→'ręczne' default)+source_url+status+notes persists all fields (round-trip via GET). PUT sets price_updated_at ONLY when unit_price changes (verified: same-price PUT preserves timestamp, price change bumps it). Same for POST/PUT /api/labor-rates including rate_min=70/rate_max=100/includes_materials=True → False; price_updated_at bumps on rate change. (3) PATCH /api/materials/{id}/status and PATCH /api/labor-rates/{id}/status toggle status inactive↔active as a SOFT status flag — item still returned by GET list with status='inactive'. (4) DELETE still soft-deletes: item removed from GET list (both endpoints). (5) CRITICAL price-snapshot invariant on estimates: created material at 100.00, added to estimate at 100.00, then PUT material→999.99; re-read estimate → item.unit_price STILL 100.00 (snapshot preserved, catalog_id kept). (6) POST /api/ai/analyze on Polish electrical description (12 gniazd, 6 włączników, 120 mb YDY 3x2,5, rozdzielnica 12-mod, 8 opraw LED) returned processing<10s, polled completed in <90s with ≥3 items; every item price_source ∈ {catalog,null,user} (never 'ai'); quantity_basis ∈ {read,estimated}; quantity_source ∈ {ai_read,ai_estimated,user}; null-source items → unit_price=0. AI never invents prices. (7) Voice regression: /api/voice/parse-command context=catalog with 'Zmień cenę YDY 3x2,5 na 8 zł' → actions[] contains op='set_price' (live Gemini). context=estimate with 'Dodaj 20 punktów elektrycznych po 85 zł' → 200 with actions[]. /api/catalog/voice-apply {op:bump_prices, item_kind:labor, trade:elektryka, percent:5} actually mutates DB (sampled labor.rate went from old→old*1.05 within 0.02 zł). (8) PDF regression: GET /api/estimates/{id}/pdf?token= returns HTTP 200, content-type application/pdf, %PDF- header, >500 bytes (internal totals hidden — covered by pre-existing test_pdf_hides_internals still passing). (9) Auth login returns {token,user}; projects/clients CRUD unaffected. FRONTEND (mobile viewport 390x844, real login test@budkoszt.pl/test123): /(tabs)/catalog loads with data-testid tab-materials, tab-labor, catalog-search, cat-elektryka, open-filters, add-catalog-fab, toggle-status-{id}. Filters sheet opens showing sort-name/sort-price_asc/sort-price_desc, producer chips (man-*), unit chips (unit-*) and toggle-inactive switch. Item cards render net price + 'brutto 270,60 zł' derived + 'źródło: przykładowe · 2026-09-14' + PRZYKŁADOWA badge + power toggle icon (verified visually — see /tmp/catalog_main.png). Add-material form (/catalog-form?type=material) shows all fields: catalog-name, cf-cat-elektryka (main category), catalog-subcategory, catalog-description, cf-unit-*, catalog-manufacturer, catalog-sku, catalog-ean, catalog-specs, catalog-price, cf-vat-23 chips with live 'Cena brutto (auto): 15,38 zł' auto-derived, catalog-price-source, catalog-source-url, catalog-notes, catalog-status switch, save-catalog. Filling TEST_UI_1789579911 at 12,50 zł saved successfully — new row shows in list with 'źródło: ręczne · 2026-09-16'. Labor form shows catalog-rate-min, catalog-rate-max, catalog-includes-materials switch. Deprecated packages detected: none. SafeAreaView issues detected: none. React Native issues: none.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_catalog_etap1.py",
+    "/app/backend/tests/test_estimate_pipeline.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_catalog_voice_api.py",
+    "/app/backend/tests/test_catalog_voice.py",
+    "/app/backend/tests/test_matching.py",
+    "/app/backend/tests/test_totals.py",
+    "/app/backend/tests/test_upload.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: replace FastAPI on_event('startup'/'shutdown') with lifespan handlers (10 DeprecationWarnings, no functional impact)."
+  ],
+  "critical_code_review_comments": [
+    "server.create_material / update_material correctly default price_source_label to 'ręczne' on manual entry and preserve the existing label on PUT when the caller omits it — supports catalog-form workflow.",
+    "server.update_material only stamps price_updated_at when unit_price actually changes (float comparison guard) — verified live for both materials (unit_price) and labor (rate).",
+    "server.set_material_status / set_labor_status are soft PATCH toggles (SET status only, do NOT touch deleted_at) — GET still lists inactive rows as required for 'Pokaż nieaktywne'.",
+    "Estimate PRICE SNAPSHOT invariant: create_estimate stores items with their own unit_price; get_estimate returns items as-is without rehydrating from catalog. Verified live: catalog PUT to 999.99 leaves estimate at 100.00. Contract holds.",
+    "seed_data._migrate_legacy runs on every login/register (called via seed_user_catalog) and non-destructively adds main_category, status='active', vat_rate=23, price_source_label defaulted, ean='', description='', source_url='', notes='', price_updated_at from created_at — verified: existing user's 132 materials + 58 labor rates all carry the new fields with status='active'.",
+    "Frontend catalog panel + catalog-form correctly pull main_category, vat_rate, price_source_label, source_url, status; live 'Cena brutto (auto)' computes on the client only (net stored, gross derived) matching the ETAP1 spec.",
+    "No mocked APIs. Real Gemini via Emergent LLM key still functional on both /voice/parse-command and /ai/analyze."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_catalog_etap1.py (NEW — 16 tests)",
+    "/app/test_reports/iteration_7.json",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "success_rate": {"backend": "100% (119/119 pytest)", "frontend": "100% (login, catalog panel filters+chips+badges+toggle, material form all-fields save, labor form rate_min/rate_max/includes_materials)"},
+  "seed_data_creation": "One TEST_UI_1789579911 material was saved through the mobile UI to prove end-to-end save; visible in the catalog list. Test suite creates and cleans TEST_* rows in-line; two rows survive by design in seed (YDYp price bumped by voice-apply, unchanged behavior from iter_5).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: cd /app/backend && pytest tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml. New ETAP1 file: /app/backend/tests/test_catalog_etap1.py (16 tests, ~32s incl. live AI/voice). Notes: (a) voice-apply actions use key 'op' (not 'action'). (b) price snapshot test creates a real estimate — cleaned in test. (c) frontend Field wraps TextInput; use querySelector('[data-testid=\"catalog-name\"]') then click+keyboard.type instead of .fill() on the outer node.",
+  "rca_of_issue": "N/A — no live bugs found. The two initial voice-regression test failures were test-bugs on my side: I used JSON key 'action' but the backend contract uses 'op'; corrected in test_catalog_etap1.py."
+}

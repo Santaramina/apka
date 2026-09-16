@@ -1,3 +1,4 @@
+import json
 import logging
 import uuid
 from datetime import timedelta, timezone
@@ -8,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
@@ -17,6 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 import requests
 
 import ai_service
+import catalog_import
 import image_utils
 import matching
 import pdf_service
@@ -143,22 +145,38 @@ class ProjectIn(BaseModel):
 
 class MaterialIn(BaseModel):
     name: str
+    main_category: Optional[str] = None
     trade: str = "ogolnobudowlana"
     subcategory: str = ""
     unit: str = "szt"
     unit_price: float = 0
+    vat_rate: float = 23
     manufacturer: str = ""
     sku: str = ""
+    ean: str = ""
     specs: str = ""
+    description: str = ""
+    price_source_label: str = ""
+    source_url: str = ""
+    status: str = "active"
+    notes: str = ""
     category: Optional[str] = None  # legacy
 
 
 class LaborIn(BaseModel):
     name: str
+    main_category: Optional[str] = None
     trade: str = "ogolnobudowlana"
     subcategory: str = ""
     unit: str = "godz"
     rate: float = 0
+    rate_min: Optional[float] = None
+    rate_max: Optional[float] = None
+    includes_materials: bool = False
+    description: str = ""
+    price_source_label: str = ""
+    status: str = "active"
+    notes: str = ""
     category: Optional[str] = None  # legacy
 
 
@@ -416,21 +434,31 @@ async def list_materials(user: dict = Depends(get_current_user)):
 @api.post("/materials")
 async def create_material(body: MaterialIn, user: dict = Depends(get_current_user)):
     trade = body.trade or body.category or "ogolnobudowlana"
+    main_cat = body.main_category or seed_data.main_category_for(trade)
     doc = {
         "material_id": str(uuid.uuid4()),
         "user_id": user["user_id"],
         "name": body.name,
+        "main_category": main_cat,
         "trade": trade,
         "category": trade,
         "subcategory": body.subcategory or "",
         "unit": body.unit,
         "unit_price": body.unit_price,
+        "vat_rate": body.vat_rate,
         "manufacturer": body.manufacturer or "",
         "sku": body.sku or "",
+        "ean": body.ean or "",
         "specs": body.specs or "",
+        "description": body.description or "",
+        "price_source_label": body.price_source_label or "ręczne",
+        "source_url": body.source_url or "",
+        "status": body.status or "active",
+        "notes": body.notes or "",
         "price_is_example": False,
         "seed_key": seed_data._mat_key(trade, body.name),
         "created_at": now_utc(),
+        "price_updated_at": now_utc(),
         "deleted_at": None,
     }
     await db.materials.insert_one(doc)
@@ -439,24 +467,34 @@ async def create_material(body: MaterialIn, user: dict = Depends(get_current_use
 
 @api.put("/materials/{material_id}")
 async def update_material(material_id: str, body: MaterialIn, user: dict = Depends(get_current_user)):
+    existing = await db.materials.find_one({"material_id": material_id, "user_id": user["user_id"], "deleted_at": None})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Nie znaleziono materiału")
     trade = body.trade or body.category or "ogolnobudowlana"
+    main_cat = body.main_category or seed_data.main_category_for(trade)
     updates = {
         "name": body.name,
+        "main_category": main_cat,
         "trade": trade,
         "category": trade,
         "subcategory": body.subcategory or "",
         "unit": body.unit,
         "unit_price": body.unit_price,
+        "vat_rate": body.vat_rate,
         "manufacturer": body.manufacturer or "",
         "sku": body.sku or "",
+        "ean": body.ean or "",
         "specs": body.specs or "",
+        "description": body.description or "",
+        "price_source_label": body.price_source_label or existing.get("price_source_label", "ręczne"),
+        "source_url": body.source_url or "",
+        "status": body.status or "active",
+        "notes": body.notes or "",
         "price_is_example": False,  # użytkownik zatwierdził/ustawił cenę
     }
-    res = await db.materials.update_one(
-        {"material_id": material_id, "user_id": user["user_id"], "deleted_at": None}, {"$set": updates}
-    )
-    if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Nie znaleziono materiału")
+    if float(existing.get("unit_price", 0) or 0) != float(body.unit_price or 0):
+        updates["price_updated_at"] = now_utc()
+    await db.materials.update_one({"material_id": material_id, "user_id": user["user_id"], "deleted_at": None}, {"$set": updates})
     return await db.materials.find_one({"material_id": material_id}, {"_id": 0})
 
 
@@ -464,6 +502,19 @@ async def update_material(material_id: str, body: MaterialIn, user: dict = Depen
 async def delete_material(material_id: str, user: dict = Depends(get_current_user)):
     await db.materials.update_one({"material_id": material_id, "user_id": user["user_id"]}, {"$set": {"deleted_at": now_utc()}})
     return {"ok": True}
+
+
+class StatusIn(BaseModel):
+    status: str = "active"
+
+
+@api.patch("/materials/{material_id}/status")
+async def set_material_status(material_id: str, body: StatusIn, user: dict = Depends(get_current_user)):
+    st = "inactive" if body.status == "inactive" else "active"
+    res = await db.materials.update_one({"material_id": material_id, "user_id": user["user_id"], "deleted_at": None}, {"$set": {"status": st}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Nie znaleziono materiału")
+    return {"ok": True, "status": st}
 
 
 # ----------------------------- Catalog: Labor -----------------------------
@@ -475,18 +526,28 @@ async def list_labor(user: dict = Depends(get_current_user)):
 @api.post("/labor-rates")
 async def create_labor(body: LaborIn, user: dict = Depends(get_current_user)):
     trade = body.trade or body.category or "ogolnobudowlana"
+    main_cat = body.main_category or seed_data.main_category_for(trade)
     doc = {
         "labor_id": str(uuid.uuid4()),
         "user_id": user["user_id"],
         "name": body.name,
+        "main_category": main_cat,
         "trade": trade,
         "category": trade,
         "subcategory": body.subcategory or "",
         "unit": body.unit,
         "rate": body.rate,
+        "rate_min": body.rate_min,
+        "rate_max": body.rate_max,
+        "includes_materials": bool(body.includes_materials),
+        "description": body.description or "",
+        "price_source_label": body.price_source_label or "ręczne",
+        "status": body.status or "active",
+        "notes": body.notes or "",
         "price_is_example": False,
         "seed_key": seed_data._lab_key(trade, body.name),
         "created_at": now_utc(),
+        "price_updated_at": now_utc(),
         "deleted_at": None,
     }
     await db.labor_rates.insert_one(doc)
@@ -495,21 +556,31 @@ async def create_labor(body: LaborIn, user: dict = Depends(get_current_user)):
 
 @api.put("/labor-rates/{labor_id}")
 async def update_labor(labor_id: str, body: LaborIn, user: dict = Depends(get_current_user)):
+    existing = await db.labor_rates.find_one({"labor_id": labor_id, "user_id": user["user_id"], "deleted_at": None})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Nie znaleziono stawki")
     trade = body.trade or body.category or "ogolnobudowlana"
+    main_cat = body.main_category or seed_data.main_category_for(trade)
     updates = {
         "name": body.name,
+        "main_category": main_cat,
         "trade": trade,
         "category": trade,
         "subcategory": body.subcategory or "",
         "unit": body.unit,
         "rate": body.rate,
+        "rate_min": body.rate_min,
+        "rate_max": body.rate_max,
+        "includes_materials": bool(body.includes_materials),
+        "description": body.description or "",
+        "price_source_label": body.price_source_label or existing.get("price_source_label", "ręczne"),
+        "status": body.status or "active",
+        "notes": body.notes or "",
         "price_is_example": False,
     }
-    res = await db.labor_rates.update_one(
-        {"labor_id": labor_id, "user_id": user["user_id"], "deleted_at": None}, {"$set": updates}
-    )
-    if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Nie znaleziono stawki")
+    if float(existing.get("rate", 0) or 0) != float(body.rate or 0):
+        updates["price_updated_at"] = now_utc()
+    await db.labor_rates.update_one({"labor_id": labor_id, "user_id": user["user_id"], "deleted_at": None}, {"$set": updates})
     return await db.labor_rates.find_one({"labor_id": labor_id}, {"_id": 0})
 
 
@@ -517,6 +588,142 @@ async def update_labor(labor_id: str, body: LaborIn, user: dict = Depends(get_cu
 async def delete_labor(labor_id: str, user: dict = Depends(get_current_user)):
     await db.labor_rates.update_one({"labor_id": labor_id, "user_id": user["user_id"]}, {"$set": {"deleted_at": now_utc()}})
     return {"ok": True}
+
+
+@api.patch("/labor-rates/{labor_id}/status")
+async def set_labor_status(labor_id: str, body: StatusIn, user: dict = Depends(get_current_user)):
+    st = "inactive" if body.status == "inactive" else "active"
+    res = await db.labor_rates.update_one({"labor_id": labor_id, "user_id": user["user_id"], "deleted_at": None}, {"$set": {"status": st}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Nie znaleziono stawki")
+    return {"ok": True, "status": st}
+
+
+# ----------------------------- Import CSV/Excel -----------------------------
+_IMPORT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@api.post("/catalog/import/preview")
+async def import_preview(file: UploadFile = File(...), kind: str = Form("material"), user: dict = Depends(get_current_user)):
+    kind = "labor" if kind == "labor" else "material"
+    data = await file.read()
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Pusty plik")
+    if len(data) > _IMPORT_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Plik jest za duży (maksymalnie 10 MB)")
+    try:
+        columns, rows = await run_in_threadpool(catalog_import.parse_file, data, file.filename or "")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Nie udało się odczytać pliku: {str(e)[:120]}")
+    if not columns:
+        raise HTTPException(status_code=400, detail="Plik nie zawiera kolumn")
+    mapping = catalog_import.suggest_mapping(columns, kind)
+    fields = catalog_import.MATERIAL_FIELDS if kind == "material" else catalog_import.LABOR_FIELDS
+    return {
+        "columns": columns,
+        "suggested_mapping": mapping,
+        "fields": fields,
+        "required": catalog_import.REQUIRED[kind],
+        "sample_rows": rows[:20],
+        "total_rows": len(rows),
+    }
+
+
+@api.post("/catalog/import/apply")
+async def import_apply(
+    file: UploadFile = File(...),
+    kind: str = Form("material"),
+    mapping: str = Form("{}"),
+    update_existing: bool = Form(True),
+    user: dict = Depends(get_current_user),
+):
+    kind = "labor" if kind == "labor" else "material"
+    uid = user["user_id"]
+    data = await file.read()
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Pusty plik")
+    if len(data) > _IMPORT_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Plik jest za duży (maksymalnie 10 MB)")
+    try:
+        mapping_dict = json.loads(mapping) if mapping else {}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Niepoprawne mapowanie kolumn")
+    try:
+        _cols, rows = await run_in_threadpool(catalog_import.parse_file, data, file.filename or "")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Nie udało się odczytać pliku: {str(e)[:120]}")
+
+    records, errors = catalog_import.build_records(rows, mapping_dict, kind)
+    created = updated = skipped = 0
+
+    coll = db.materials if kind == "material" else db.labor_rates
+    id_field = "material_id" if kind == "material" else "labor_id"
+    key_field = "unit_price" if kind == "material" else "rate"
+
+    for rec in records:
+        trade = rec.get("main_category") or "ogolnobudowlana"
+        main_cat = seed_data.main_category_for(trade)
+        # znajdź istniejący po sku/ean/nazwie
+        existing = None
+        if update_existing:
+            q = {"user_id": uid, "deleted_at": None}
+            sku = (rec.get("sku") or "").strip()
+            ean = (rec.get("ean") or "").strip()
+            if kind == "material" and sku:
+                existing = await coll.find_one({**q, "sku": sku})
+            if not existing and kind == "material" and ean:
+                existing = await coll.find_one({**q, "ean": ean})
+            if not existing:
+                existing = await coll.find_one({**q, "name": rec["name"]})
+
+        common = {
+            "name": rec["name"],
+            "main_category": main_cat,
+            "trade": trade,
+            "category": trade,
+            "subcategory": rec.get("subcategory") or "",
+            "unit": rec.get("unit") or ("godz" if kind == "labor" else "szt"),
+            "description": rec.get("description") or "",
+            "price_source_label": rec.get("price_source_label") or "import",
+            "status": rec.get("status") or "active",
+            "notes": rec.get("notes") or "",
+            key_field: rec.get(key_field) or 0.0,
+            "price_is_example": False,
+            "price_updated_at": now_utc(),
+        }
+        if kind == "material":
+            common.update({
+                "manufacturer": rec.get("manufacturer") or "",
+                "sku": rec.get("sku") or "",
+                "ean": rec.get("ean") or "",
+                "specs": rec.get("specs") or "",
+                "vat_rate": rec.get("vat_rate") if rec.get("vat_rate") is not None else 23,
+                "source_url": rec.get("source_url") or "",
+            })
+        else:
+            common.update({
+                "rate_min": rec.get("rate_min"),
+                "rate_max": rec.get("rate_max"),
+                "includes_materials": bool(rec.get("includes_materials")),
+            })
+
+        if existing:
+            await coll.update_one({"_id": existing["_id"]}, {"$set": common})
+            updated += 1
+        else:
+            doc = {
+                id_field: str(uuid.uuid4()),
+                "user_id": uid,
+                "seed_key": (seed_data._mat_key if kind == "material" else seed_data._lab_key)(trade, rec["name"]),
+                "created_at": now_utc(),
+                "deleted_at": None,
+                **common,
+            }
+            await coll.insert_one(doc)
+            created += 1
+
+    skipped = len(errors)
+    return {"created": created, "updated": updated, "skipped": skipped, "errors": errors[:50], "total_rows": len(rows)}
 
 
 # ----------------------------- Edycja głosem (katalog + kosztorys) -----------------------------
@@ -772,6 +979,11 @@ async def run_analysis(estimate_id: str, user_id: str, description: str, image_p
             if ai_needs and price_source is None:
                 requires_confirmation = True
 
+            # INWARIANT: brak ceny z katalogu => zawsze wymaga potwierdzenia
+            # (AI nigdy nie wymyśla ceny; użytkownik musi ją przypisać)
+            if price_source is None:
+                requires_confirmation = True
+
             basis = it.get("quantity_basis", "estimated")
             quantity_source = "ai_read" if basis == "read" else "ai_estimated"
 
@@ -974,6 +1186,25 @@ async def estimate_pdf(estimate_id: str, token: Optional[str] = Query(None), aut
     est = await db.estimates.find_one({"estimate_id": estimate_id, "user_id": user["user_id"], "deleted_at": None}, {"_id": 0})
     if not est:
         raise HTTPException(status_code=404, detail="Nie znaleziono kosztorysu")
+    unconfirmed = [
+        it for it in (est.get("items") or [])
+        if it.get("requires_confirmation")
+    ]
+    if unconfirmed:
+        names = [it.get("name") or "pozycja" for it in unconfirmed]
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "requires_confirmation",
+                "count": len(unconfirmed),
+                "items": names,
+                "message": (
+                    f"Nie można wygenerować oferty PDF. {len(unconfirmed)} "
+                    f"{'pozycja wymaga' if len(unconfirmed) == 1 else 'pozycji wymaga'} "
+                    "potwierdzenia ceny. Uzupełnij ceny (z katalogu lub ręcznie) i zapisz kosztorys."
+                ),
+            },
+        )
     project = await db.projects.find_one({"project_id": est.get("project_id")}, {"_id": 0}) or {}
     client = await db.clients.find_one({"client_id": est.get("client_id")}, {"_id": 0}) or {}
     computed = compute_totals(est)

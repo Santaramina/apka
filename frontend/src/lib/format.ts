@@ -22,7 +22,7 @@ export const KINDS = [
   { key: "extra", label: "Dodatkowe" },
 ];
 
-export const UNITS = ["szt", "m2", "mb", "kpl", "godz", "m3", "pkt"];
+export const UNITS = ["szt", "m", "mb", "m2", "m3", "kg", "l", "opak", "kpl", "godz", "pkt"];
 
 export function pln(n: number | undefined | null): string {
   const v = Math.round((Number(n) || 0) * 100) / 100;

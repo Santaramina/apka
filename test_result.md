@@ -142,3 +142,40 @@ frontend:
 test_credentials: test@budkoszt.pl / test123
 agent_communication:
   - "Backend 50/50 testow jednostkowych. Live E2E analyze OK. Prosze przetestowac: pelny przeplyw analyze->items(quantity_basis)->matching->edycja(ilosc/cena/kandydat/dodaj/usun)->compute totals->PDF. Nie zmieniac matching.py."
+
+## [2026-06] ETAP 1 — Uniwersalny katalog: model + panel
+backend:
+  - task: "Rozszerzony model materiałów/usług (main_category, ean, description, vat_rate, price_source_label, source_url, status, notes; usługi: rate_min/max, includes_materials) + migracja nieniszcząca + PATCH status"
+    file: "/app/backend/server.py, /app/backend/seed_data.py"
+    status: implemented; needs_retesting: true
+    details: "POST/PUT /materials i /labor-rates persystują nowe pola; main_category liczone z trade (seed_data.main_category_for). Migracja dodaje pola do istniejących dokumentów (main_category z mapy TRADE_TO_MAIN, status=active, vat=23). PATCH /materials/{id}/status i /labor-rates/{id}/status (active/inactive). price_updated_at aktualizowane przy zmianie ceny. Kosztorysy nadal trzymają kopię ceny (bez zmian). Live-verified: create z pełnymi polami, PATCH status, create usługi z min/max/includes_materials."
+frontend:
+  - task: "Panel katalogu: filtr kategoria główna + podkategoria + producent + jednostka + sort (nazwa/cena) + status; cena netto+brutto(VAT); źródło/data; szybka dezaktywacja (power)"
+    file: "/app/frontend/app/(tabs)/catalog.tsx, /app/frontend/src/lib/catalog.ts, /app/frontend/src/components/ui.tsx"
+    status: implemented; needs_retesting: true
+  - task: "Formularz materiału/usługi z nowymi polami (EAN, opis, VAT, źródło, link, uwagi, status; usługi: min/max, zawiera materiały)"
+    file: "/app/frontend/app/catalog-form.tsx"
+    status: implemented; needs_retesting: true
+test_credentials: test@budkoszt.pl / test123
+agent_communication:
+  - "ETAP 1 z 3. Prosze przetestowac: nowe pola CRUD materialow i uslug, PATCH status (aktywna/nieaktywna), filtry/sort/wyszukiwanie w panelu, formularze, oraz REGRESJE: analiza AI, kosztorysy (kopie cen), glos. NIE zmieniac matching.py. Backend unit: 40 passed."
+
+## [2026-06] ETAP 2 (Import CSV/Excel) + ETAP 3 (AI + integracja z kosztorysem)
+backend:
+  - task: "Import CSV/Excel: preview (auto-mapowanie PL/EN nagłówków) + apply (walidacja, dedup, update po SKU/EAN/nazwie, pomijanie błędów, podsumowanie). Nic nie usuwa."
+    file: "/app/backend/catalog_import.py, /app/backend/server.py (/catalog/import/preview, /catalog/import/apply)"
+    status: implemented; needs_retesting: true
+    details: "multipart file + Form(kind, mapping json, update_existing). pandas (csv autodetekcja sep, xlsx openpyxl). Live-verified: preview auto-map 6 kolumn PL; apply created 2; re-apply updated 2 (dedup po SKU); errors dla braku nazwy/złej ceny/duplikatu. Unit: test_import.py 12 passed."
+  - task: "AI prompt: dopisywanie producenta/modelu i zamienników w note (nieniszcząco)"
+    file: "/app/backend/ai_service.py"
+    status: implemented; needs_retesting: true
+frontend:
+  - task: "Ekran importu /catalog-import: wybór pliku (expo-document-picker) -> podgląd -> mapowanie kolumn -> update_existing -> podsumowanie (dodane/zaktualizowane/pominięte+błędy). Wejście z panelu (ikona)."
+    file: "/app/frontend/app/catalog-import.tsx, /app/frontend/app/(tabs)/catalog.tsx, /app/frontend/src/api/client.ts (uploadMultipart)"
+    status: implemented; needs_retesting: true
+  - task: "Wyszukiwarka katalogu w edytorze wyceny: 'Z katalogu' (materiały+usługi, szukaj, pobierz cenę jako KOPIĘ do pozycji). 'Własna pozycja' zachowana."
+    file: "/app/frontend/src/components/catalog-picker.tsx, /app/frontend/app/estimate/[id].tsx"
+    status: implemented; needs_retesting: true
+test_credentials: test@budkoszt.pl / test123
+agent_communication:
+  - "ETAP 2+3. Prosze przetestowac backend import (preview+apply, dedup po SKU/EAN, update_existing, pomijanie blednych, brak usuwania danych) oraz REGRESJE (ETAP1 pola, PATCH status, AI analyze, kosztorysy-kopie cen, glos, PDF). Frontend: ekran importu renderuje sie (picker pliku natywny - w web tylko render), wyszukiwarka katalogu w edytorze dziala (dodanie pozycji z cena-kopia). NIE zmieniac matching.py. Backend unit lacznie: 52 passed (import 12 + wczesniejsze)."

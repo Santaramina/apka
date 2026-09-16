@@ -75,6 +75,7 @@ NIE PODAWAJ pola z ceną. Podaj kompletną listę: materiały, robociznę i ewen
 Podawaj dokładne, konkretne nazwy materiałów (typ, przekrój, wymiar, moc), aby dało się je dopasować do katalogu.
 Jeśli ilości nie da się ustalić — ustaw quantity_basis='estimated', obniż confidence i rozważ needs_confirmation=true.
 NIE dodawaj pozycji, których nie ma na zdjęciach ani w opisie.
+Jeśli rozpoznasz producenta lub model — dopisz go w polu "note". Jeśli istnieją typowe zamienniki, możesz je wskazać w "note" (bez podawania cen).
 """
 
 

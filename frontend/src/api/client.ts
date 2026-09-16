@@ -84,3 +84,45 @@ export async function uploadFile(uri: string, name: string, type: string): Promi
   }
   return JSON.parse(res.body);
 }
+
+// Generic multipart upload to an arbitrary endpoint with extra form fields.
+// Used for CSV/Excel catalog import (preview + apply).
+export async function uploadMultipart<T = any>(
+  endpoint: string,
+  uri: string,
+  name: string,
+  type: string,
+  fields: Record<string, string> = {},
+): Promise<T> {
+  const url = `${BASE}/api${endpoint}`;
+  if (Platform.OS === "web") {
+    const form = new FormData();
+    const blob = await (await fetch(uri)).blob();
+    form.append("file", blob, name);
+    Object.entries(fields).forEach(([k, v]) => form.append(k, v));
+    return apiFetch(endpoint, { method: "POST", body: form, isForm: true });
+  }
+  const headers: Record<string, string> = {};
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+  const file = new File(uri);
+  const res = await file.upload(url, {
+    httpMethod: "POST",
+    uploadType: UploadType.MULTIPART,
+    fieldName: "file",
+    mimeType: type,
+    parameters: fields,
+    headers,
+  });
+  if (res.status < 200 || res.status >= 300) {
+    let msg = `Błąd ${res.status}`;
+    try {
+      const j = JSON.parse(res.body);
+      if (j?.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+    } catch {}
+    console.warn("[uploadMultipart] failed", { status: res.status, body: res.body?.slice?.(0, 300), endpoint, name });
+    const err: any = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  return JSON.parse(res.body);
+}
